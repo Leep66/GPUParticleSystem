@@ -1,0 +1,23 @@
+﻿<Definitions>
+	<StaticModelInfo
+		name = "Woman"
+		path = "Data/Models/Woman.obj"
+		shader = "Data/Shaders/BlinnPhong.hlsl"
+		diffuseMap = "Data/Textures/Woman_Diffuse.png"
+		normalMap = "Data/Textures/Woman_Normal.png"
+		specGlossEmitMap = ""
+		unitsPerMeter = "100"
+		x="left"
+		y="up"
+		z="forward"
+	/>
+
+	<StaticModelInfo
+		name = "CampFire"
+		path = "Data/Models/Camp_Fire.obj"
+		x="left"
+		y="up"
+		z="forward"
+	/>
+
+</Definitions>
