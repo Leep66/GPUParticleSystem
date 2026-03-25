@@ -4,6 +4,12 @@ A real-time particle simulation implemented entirely on the GPU using DirectX 11
 
 This project explores how to move large-scale simulation from CPU to GPU and design a scalable rendering pipeline capable of handling millions of particles.
 
+## Engine
+
+- **Engine:** https://github.com/Leep66/Engine  
+
+The game logic and rendering are implemented using my own custom-built C++ engine.
+
 ---
 ## Overview
 
