@@ -84,16 +84,19 @@ struct Particle
     float p_pad0;
     float p_pad1;
 };
+
 static const uint FORCE_GRAVITY = 0u;
 static const uint FORCE_POINT = 1u;
 static const uint FORCE_DIRECTION = 2u;
 static const uint FORCE_FLOWCOLUMN = 3u;
+
 static const uint FLOW_SWIRL_ENABLE = (1u << 0);
 static const uint FLOW_RADIAL_ENABLE = (1u << 1);
 static const uint FLOW_AXIAL_ENABLE = (1u << 2);
 static const uint FLOW_SWIRL_INVERT = (1u << 3);
 static const uint FLOW_USE_INV_RADIUS = (1u << 4);
 static const uint FLOW_RADIAL_OUTWARD = (1u << 5);
+
 struct ParticleForce
 {
     uint   ForceType;
@@ -322,6 +325,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         }
         float3 oldPos = p.Position;
         float3 accVec = 0.0.xxx;
+
         uint numForces, forceStride;
         Forces.GetDimensions(numForces, forceStride);
         [loop]
@@ -355,12 +359,15 @@ void CSMain(uint3 id : SV_DispatchThreadID)
                 accVec += flowcolumn_force_accel(p.Position, f);
             }
         }
+
         if (NoiseStrength > 0.0 && NoiseFrequency > 0.0)
         {
             accVec += SampleNoiseField(p.Position, SystemTime);
         }
+
         p.Velocity += accVec * DeltaTime;
         float3 newPos = oldPos + p.Velocity * DeltaTime;
+
         static const float GROUND_Z = 0.0f;
         bool hitGround = (oldPos.z > GROUND_Z) && (newPos.z <= GROUND_Z);
         if (hitGround)

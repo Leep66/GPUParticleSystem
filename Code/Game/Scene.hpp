@@ -3,10 +3,13 @@
 #include <vector>
 #include <memory>
 #include "Engine/Renderer/Renderer.hpp"
+#include "Engine/Math/Vec3.hpp"
+#include "Engine/Math/EulerAngles.hpp"
 
 class GameObject; 
 class ParticleEmitter;
 class Game;
+class Player;
 
 class Scene
 {
@@ -49,6 +52,8 @@ public:
 	std::vector<GameObject*>& GetGameObjects() { return m_gameObjects; }
 	const std::vector<GameObject*>& GetGameObjects() const { return m_gameObjects; }
 
+	void SetupStartPosAndOrientation(Vec3 pos, EulerAngles ori);
+	void ResetPlayer(Player* p);
 
 	Lights& GetLights() { return m_lights; }
 
@@ -60,4 +65,6 @@ protected:
 	Lights m_lights;
 	std::vector<GameObject*> m_gameObjects;
 	std::vector<ParticleEmitter*> m_particleEmitters;
+	Vec3 m_startPos = Vec3(0.f, 0.f, 0.f);
+	EulerAngles m_startOri = EulerAngles(0.f, 0.f, 0.f);
 };

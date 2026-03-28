@@ -6,6 +6,8 @@
 #include "Engine/Renderer/DebugRender.hpp"
 #include "Engine/Math/AABB2.hpp"
 #include "Engine/ParticleSystem/ParticleSystem.hpp"
+#include "Game/Player.hpp"
+
 
 extern Renderer* g_theRenderer;
 extern ParticleSystem* g_theParticleSystem;
@@ -101,6 +103,12 @@ void Scene::RemoveGameObject(GameObject* /*gameObject*/)
 
 void Scene::ClearGameObjects()
 {
+	for (GameObject* o : m_gameObjects)
+	{
+		if (!o) continue;
+		delete o;
+		o = nullptr;
+	}
 	m_gameObjects.clear();
 }
 
@@ -141,6 +149,7 @@ void Scene::ClearParticleEmitters()
 
 void Scene::ClearForces()
 {
+	
 	g_theParticleSystem->ClearForces();
 }
 
@@ -205,4 +214,16 @@ std::vector<GameObject*> Scene::FindGameObjectsByName(const std::string& name)
 		}
 	}
 	return result;
+}
+
+void Scene::SetupStartPosAndOrientation(Vec3 pos, EulerAngles ori)
+{
+	m_startPos = pos;
+	m_startOri = ori;
+}
+
+void Scene::ResetPlayer(Player* p)
+{
+	p->SetPosition(m_startPos);
+	p->SetOrientation(m_startOri);
 }

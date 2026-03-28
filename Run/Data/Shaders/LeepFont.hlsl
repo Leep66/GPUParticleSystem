@@ -47,16 +47,14 @@ v2p_t VertexMain(vs_input_t input)
 
 float4 PixelMain(v2p_t input) : SV_Target0
 {
-    float4 textureColor = diffuseTexture.Sample(diffuseSampler, input.uv);
-    float4 vertexColor = input.color;
-    float4 modelColor = ModelColor;
+    float dist = diffuseTexture.Sample(diffuseSampler, input.uv).r;
 
-    float4 color = textureColor * vertexColor * modelColor;
-    clip(color.a - 0.01f);
-    return float4(color);
-}
+    float width = fwidth(dist);
+    float glyphAlpha = smoothstep(0.5 - width, 0.5 + width, dist);
+    float outlineAlpha = smoothstep(0.45 - width, 0.45 + width, dist);
+    float3 baseColor = input.color.rgb * ModelColor.rgb;
+    float3 finalColor = lerp(float3(0,0,0), baseColor, glyphAlpha);
+    float finalAlpha = glyphAlpha * input.color.a * ModelColor.a;
 
-[numthreads(1, 1, 1)]
-void CSMain(uint3 dispatchThreadID : SV_DispatchThreadID)
-{
+    return float4(finalColor, finalAlpha);
 }

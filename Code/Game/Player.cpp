@@ -52,18 +52,14 @@ void Player::Render() const
 
 void Player::HandleInput(float deltaSeconds)
 {
-
-	if (g_theInput->WasKeyJustPressed('H'))
-	{
-		m_position = Vec3();
-		m_orientation = EulerAngles();
-	}
-
 	MoveByKeyboard(deltaSeconds);
 	RotateByKeyboard(deltaSeconds);
 
 	MoveByController(deltaSeconds);
 	RotateByController(deltaSeconds);
+
+	m_camera.SetPosition(m_position);
+	m_camera.SetOrientation(m_orientation);
 }
 
 void Player::MoveByKeyboard(float deltaSeconds)
@@ -97,7 +93,7 @@ void Player::MoveByKeyboard(float deltaSeconds)
 	}
 
 	m_position += moveDirection * speed * deltaSeconds;
-	m_camera.SetPosition(m_position);
+	
 }
 
 void Player::RotateByKeyboard(float deltaSeconds)
@@ -119,7 +115,7 @@ void Player::RotateByKeyboard(float deltaSeconds)
 
 	m_orientation.m_rollDegrees = GetClamped(m_orientation.m_rollDegrees, -45.0f, 45.0f);*/
 
-	m_camera.SetOrientation(m_orientation);
+	
 }
 
 void Player::MoveByController(float deltaSeconds)
@@ -158,7 +154,6 @@ void Player::MoveByController(float deltaSeconds)
 	}
 
 	m_position += moveDirection * speed * deltaSeconds;
-	m_camera.SetPosition(m_position);
 }
 
 void Player::RotateByController(float deltaSeconds)
@@ -177,14 +172,12 @@ void Player::RotateByController(float deltaSeconds)
 
 	m_orientation.m_rollDegrees = GetClamped(m_orientation.m_rollDegrees, -45.0f, 45.0f);
 
-	m_camera.SetOrientation(m_orientation);
 }
 
 
 void Player::SetPosition(const Vec3& position)
 {
 	m_position = position;
-	m_camera.SetPosition(m_position);
 }
 
 Vec3 Player::GetFwdNormal() const

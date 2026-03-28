@@ -31,6 +31,9 @@ GameObject::~GameObject()
 		delete m_ibo;
 		m_ibo = nullptr;
 	}
+
+	m_vertexes.clear();
+	m_indices.clear();
 }
 
 void GameObject::Update(float deltaSeconds)
@@ -67,7 +70,7 @@ void GameObject::Render() const
 	}
 	else
 	{
-		g_theRenderer->SetBlendMode(BlendMode::Blend_OPAQUE);
+		g_theRenderer->SetBlendMode(BlendMode::ALPHA);
 	}
 	g_theRenderer->SetStatesIfChanged();
 

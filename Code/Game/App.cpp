@@ -28,6 +28,7 @@ InputSystem*	g_theInput		= nullptr;
 AudioSystem*	g_theAudio		= nullptr;
 Window*			g_theWindow		= nullptr;
 BitmapFont* g_theFont = nullptr;
+BitmapFontPro* g_theFontPro = nullptr;
 DevConsole* g_theDevConsole = nullptr;
 EventSystem* g_theEventSystem = nullptr;
 
@@ -98,6 +99,7 @@ void App::Startup()
 	g_theAudio->Startup();
 	g_theDevConsole->Startup();
 	g_theFont = g_theRenderer->CreateOrGetBitmapFont("Data/Fonts/SquirrelFixedFont");
+	g_theFontPro = g_theRenderer->CreateOrGetBitmapFontPro("Data/Fonts/LeepFont");
 	DebugRenderSystemStartup(debugRenderConfig);
 	InitImGui(g_theWindow->GetHWND(), g_theRenderer->GetDevice(), g_theRenderer->GetDeviceContext());
 
@@ -148,7 +150,7 @@ void App::Shutdown()
 	g_theRenderer->Shutdown();
 	g_theDevConsole->Shutdown();
 	g_theAudio->Shutdown();
-	
+
 	g_theWindow->ShutDown();
 	g_theInput->Shutdown();
 
@@ -164,7 +166,7 @@ void App::Shutdown()
 	g_theWindow = nullptr;
 	delete g_theInput;
 	g_theInput = nullptr;
-	
+
 }
 
 bool App::HandleQuitRequested()

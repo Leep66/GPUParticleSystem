@@ -13,6 +13,7 @@
 #include "Engine/ParticleSystem/ParticleEmitter.hpp"
 #include "Game/SceneManager.hpp"
 #include "Game/Scene.hpp"
+#include <vector>
 #include <cstdint>
 
 enum class GameState
@@ -115,6 +116,7 @@ private:
 	void SetupScene4();
 	void SetupScene5();
 
+
 private:
 	float m_attractRingRadius = 150.f;
 	float m_attractRingThickness = 20.f;
@@ -145,5 +147,12 @@ private:
 
 	ParticleEmitter* m_uiSelectedEmitter = nullptr;
 
-
+private:
+	Vec3  m_tornadoBasePos = Vec3(0.f, 0.f, 0.f);
+	float m_tornadoTime = 0.f;
+	float m_tornadoMoveRadius = 10.f;
+	float m_tornadoMoveSpeed = 0.05f;
+	GameObject* m_dustSheet = nullptr;
+	std::vector<ParticleEmitter*> m_tornadoEmitters;
+	std::vector<uint32_t> m_tornadoForceIndices;
 };

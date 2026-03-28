@@ -269,6 +269,11 @@ void Game::UpdateInput(float deltaSeconds)
 		DebugAddMessage(text, 5.f, Rgba8::WHITE, Rgba8::WHITE);
 	}
 
+	if (g_theInput->WasKeyJustPressed('H'))
+	{
+		GetCurrentScene()->ResetPlayer(m_player);
+	}
+
 	if (g_theInput->IsKeyDown(KEYCODE_RIGHT_MOUSE))
 	{
 		m_imguiCursor = false;
@@ -405,10 +410,38 @@ void Game::UpdateGame(float deltaSeconds)
 			entity->Update(deltaSeconds);
 		}
 	}
+
+	if(GetCurrentScene()->GetName() == "Scene 4")
+	{
+		m_tornadoTime += deltaSeconds;
+
+		float angle = m_tornadoTime * m_tornadoMoveSpeed * 360.f;
+		Vec2 circle = Vec2::MakeFromPolarDegrees(angle, m_tornadoMoveRadius);
+
+		m_tornadoBasePos = Vec3(circle.x, circle.y, 0.f);
+
+		for (ParticleEmitter* em : m_tornadoEmitters)
+		{
+			if (!em) continue;
+			em->SetPosition(m_tornadoBasePos);
+		}
+
+		for (int idx : m_tornadoForceIndices)
+		{
+			ParticleForce f = *g_theParticleSystem->GetForce(idx);
+
+			f.m_position[0] = m_tornadoBasePos.x;
+			f.m_position[1] = m_tornadoBasePos.y;
+
+			g_theParticleSystem->SetForce(idx, f);
+		}
+
+	}
 }
 
 void Game::RenderLightSource(Light light) const
 {
+	if (!m_debugDraw) return;
 	std::vector<Vertex_PCU> verts;
 
 	Vec3 cameraForward = m_player->GetCamera().GetOrientation().GetForwardNormal();
@@ -484,7 +517,7 @@ void Game::ExitAttractMode()
 
 void Game::EnterPlayingMode()
 {
-	SwitchToScene("Scene 2");
+	SwitchToScene("Scene 1");
 }
 
 void Game::ExitPlayingMode()
@@ -614,7 +647,15 @@ void Game::ShowParticleStatsPanel()
 		return;
 	}
 
-	const auto& emittersRef = g_theParticleSystem->GetEmitters();
+	Scene* scene = GetCurrentScene();
+
+	if (!scene)
+	{
+		ImGui::TextDisabled("No active scene.");
+		return;
+	}
+
+	const auto& emittersRef = scene->GetEmitters();
 	std::vector<ParticleEmitter*> emitters(emittersRef.begin(), emittersRef.end());
 
 	const int emitterCount = (int)emitters.size();
@@ -738,16 +779,14 @@ void Game::ShowParticleStatsPanel()
 
 	const float tableHeight = 260.f;
 
-	if (ImGui::BeginTable("EmitterStats", 7, flags, ImVec2(0.f, tableHeight)))
+	if (ImGui::BeginTable("EmitterStats", 5, flags, ImVec2(0.f, tableHeight)))
 	{
 		ImGui::TableSetupScrollFreeze(0, 1);
-		ImGui::TableSetupColumn("Name");
-		ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, 70.f);
+		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 70.f);
 		ImGui::TableSetupColumn("Active", ImGuiTableColumnFlags_WidthFixed, 90.f);
 		ImGui::TableSetupColumn("Spawn", ImGuiTableColumnFlags_WidthFixed, 80.f);
 		ImGui::TableSetupColumn("GPU ms", ImGuiTableColumnFlags_WidthFixed, 80.f);
 		ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, 70.f);
-		ImGui::TableSetupColumn("Notes");
 		ImGui::TableHeadersRow();
 
 		int sumActive = 0;
@@ -772,25 +811,16 @@ void Game::ShowParticleStatsPanel()
 			ImGui::TextUnformatted(e->GetName().c_str());
 
 			ImGui::TableSetColumnIndex(1);
-			ImGui::TextUnformatted(e->IsEnabled() ? "Yes" : "No");
-
-			ImGui::TableSetColumnIndex(2);
 			ImGui::Text("%d / %d", active, maxP);
 
-			ImGui::TableSetColumnIndex(3);
+			ImGui::TableSetColumnIndex(2);
 			ImGui::Text("%.1f", getSpawn(e));
 
-			ImGui::TableSetColumnIndex(4);
+			ImGui::TableSetColumnIndex(3);
 			ImGui::Text("%.3f", getGpu(e));
 
-			ImGui::TableSetColumnIndex(5);
+			ImGui::TableSetColumnIndex(4);
 			ImGui::Text("%.2f", e->GetAge());
-
-			ImGui::TableSetColumnIndex(6);
-			float usage = (maxP > 0) ? (float)active / (float)maxP : 0.f;
-			if (usage > 0.95f) ImGui::TextUnformatted("Near cap");
-			else if (usage > 0.70f) ImGui::TextUnformatted("High");
-			else ImGui::TextUnformatted("-");
 		}
 
 		ImGui::EndTable();
@@ -892,6 +922,7 @@ void Game::Shutdown()
 
 	if (g_theParticleSystem)
 	{
+		g_theParticleSystem->Shutdown();
 		delete g_theParticleSystem;
 		g_theParticleSystem = nullptr;
 	}
@@ -939,6 +970,8 @@ void Game::ShowImguiWindow()
 
 	Scene* scene = GetCurrentScene();
 
+	
+
 	if (m_player)
 	{
 		Vec3 playerPos = m_player->GetPosition();
@@ -962,6 +995,8 @@ void Game::ShowImguiWindow()
 		ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Player: Not found / NULL");
 		ImGui::Separator();
 	}
+
+	ImGui::Checkbox("Debug Draw", &m_debugDraw);
 
 	{
 		const int emitterCount = (int)g_theParticleSystem->GetEmitters().size();
@@ -1018,7 +1053,7 @@ void Game::ShowImguiWindow()
 
 			ImGui::EndTabBar();
 		}
-
+		
 
 		ImGui::EndChild();
 		ImGui::EndTable();
@@ -1286,223 +1321,179 @@ void Game::ShowLightingPanel()
 
 	ImGui::SeparatorText("Sun Light");
 
+	float sunColor[3] = { L.m_sunColor.x, L.m_sunColor.y, L.m_sunColor.z };
+	if (ImGui::ColorEdit3("Sun Color", sunColor))
 	{
-		float sunColor[3] = { L.m_sunColor.x, L.m_sunColor.y, L.m_sunColor.z };
-		if (ImGui::ColorEdit3("Sun Color", sunColor))
-		{
-			L.m_sunColor.x = sunColor[0];
-			L.m_sunColor.y = sunColor[1];
-			L.m_sunColor.z = sunColor[2];
-		}
-
-		float sunIntensity = L.m_sunColor.w;
-		if (ImGui::DragFloat("Sun Intensity", &sunIntensity, 0.01f, 0.0f, 10.0f))
-		{
-			L.m_sunColor.w = sunIntensity;
-		}
-
-		float sunDir[3] = { L.m_sunDirection.x, L.m_sunDirection.y, L.m_sunDirection.z };
-		if (ImGui::DragFloat3("Sun Direction", sunDir, 0.01f, -1.0f, 1.0f))
-		{
-			L.m_sunDirection = Vec3(sunDir[0], sunDir[1], sunDir[2]).GetNormalized();
-		}
+		L.m_sunColor.x = sunColor[0];
+		L.m_sunColor.y = sunColor[1];
+		L.m_sunColor.z = sunColor[2];
 	}
+
+	float sunIntensity = L.m_sunColor.w;
+	if (ImGui::DragFloat("Sun Intensity", &sunIntensity, 0.01f, 0.0f, 20.0f))
+		L.m_sunColor.w = sunIntensity;
+
+	float sunDir[3] = { L.m_sunDirection.x, L.m_sunDirection.y, L.m_sunDirection.z };
+	if (ImGui::DragFloat3("Sun Direction", sunDir, 0.01f, -1.0f, 1.0f))
+	{
+		Vec3 d = Vec3(sunDir[0], sunDir[1], sunDir[2]);
+		if (d.GetLengthSquared() > 0.0001f)
+			L.m_sunDirection = d.GetNormalized();
+	}
+
 
 	ImGui::Spacing();
-	ImGui::SeparatorText("Point & Spot Lights");
+	ImGui::SeparatorText("Lights");
 
-	if (L.m_numLights <= 0)
+
+	m_uiLightIndex = (int)GetClamped((float)m_uiLightIndex, 0.f, (float) L.m_numLights - 1.f);
+
+	if (ImGui::BeginTable("##LightTable", 2, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable))
 	{
-		ImGui::TextDisabled("No lights in the scene.");
-		ImGui::Separator();
-	}
-	else
-	{
-		if (m_uiLightIndex < 0) m_uiLightIndex = 0;
-		if (m_uiLightIndex >= L.m_numLights) m_uiLightIndex = L.m_numLights - 1;
+		ImGui::TableSetupColumn("List", ImGuiTableColumnFlags_WidthFixed, 220.f);
+		ImGui::TableSetupColumn("Inspector", ImGuiTableColumnFlags_WidthStretch);
 
-		auto isSpot = [&](const Light& li)->bool
-			{
-				return (li.m_direction.GetLengthSquared() > 0.1f);
-			};
 
-		auto labelFor = [&](int i)->std::string
-			{
-				const Light& li = L.m_lightsArray[i];
-				char buf[128];
-				snprintf(buf, sizeof(buf), "Light %d (%s)", i, isSpot(li) ? "Spot" : "Point");
-				return std::string(buf);
-			};
+		ImGui::TableNextColumn();
 
-		if (ImGui::BeginTable("##LightLayout", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV))
+		if (ImGui::BeginListBox("##LightList", ImVec2(-FLT_MIN, 260)))
 		{
-			ImGui::TableSetupColumn("List", ImGuiTableColumnFlags_WidthFixed, 220.0f);
-			ImGui::TableSetupColumn("Inspector", ImGuiTableColumnFlags_WidthStretch);
-
-			ImGui::TableNextColumn();
-			ImGui::BeginChild("##LightList", ImVec2(0, 260), true);
-
-			if (ImGui::BeginListBox("##LightListBox", ImVec2(-FLT_MIN, -FLT_MIN)))
+			for (int i = 0; i < L.m_numLights; i++)
 			{
-				for (int i = 0; i < L.m_numLights; ++i)
-				{
-					bool selected = (i == m_uiLightIndex);
-					std::string item = labelFor(i);
-					if (ImGui::Selectable(item.c_str(), selected))
-						m_uiLightIndex = i;
-					if (selected) ImGui::SetItemDefaultFocus();
-				}
-				ImGui::EndListBox();
+				bool selected = (i == m_uiLightIndex);
+
+				char buf[64];
+				snprintf(buf, sizeof(buf), "Light %d", i);
+
+				if (ImGui::Selectable(buf, selected))
+					m_uiLightIndex = i;
+
+				if (selected) ImGui::SetItemDefaultFocus();
 			}
-
-			ImGui::EndChild();
-
-			ImGui::TableNextColumn();
-			ImGui::BeginChild("##LightInspector", ImVec2(0, 260), true);
-
-			ImGui::Text("Editing: %d / %d", m_uiLightIndex, L.m_numLights - 1);
-			ImGui::Separator();
-
-			Light& light = L.m_lightsArray[m_uiLightIndex];
-
-			float lightColor[3] = { light.m_color.x, light.m_color.y, light.m_color.z };
-			if (ImGui::ColorEdit3("Color", lightColor))
-			{
-				light.m_color.x = lightColor[0];
-				light.m_color.y = lightColor[1];
-				light.m_color.z = lightColor[2];
-			}
-
-			float lightIntensity = light.m_color.w;
-			if (ImGui::DragFloat("Intensity", &lightIntensity, 0.1f, 0.0f, 100.0f))
-			{
-				light.m_color.w = lightIntensity;
-			}
-
-			float lightPos[3] = { light.m_position.x, light.m_position.y, light.m_position.z };
-			if (ImGui::DragFloat3("Position", lightPos, 0.1f))
-			{
-				light.m_position = Vec3(lightPos[0], lightPos[1], lightPos[2]);
-			}
-
-			bool spotlight = isSpot(light);
-			if (ImGui::Checkbox("Spotlight", &spotlight))
-			{
-				if (spotlight)
-				{
-					if (light.m_direction.GetLengthSquared() <= 0.1f)
-						light.m_direction = Vec3(0, 0, -1);
-
-					if (light.m_outerDotThreshold <= -1.0f) light.m_outerDotThreshold = CosDegrees(30.0f);
-					if (light.m_innerDotThreshold <= -1.0f) light.m_innerDotThreshold = CosDegrees(15.0f);
-				}
-				else
-				{
-					light.m_direction = Vec3(0, 0, 0);
-					light.m_innerDotThreshold = -1.0f;
-					light.m_outerDotThreshold = -2.0f;
-				}
-			}
-
-			if (spotlight)
-			{
-				float lightDir[3] = { light.m_direction.x, light.m_direction.y, light.m_direction.z };
-				if (ImGui::DragFloat3("Direction", lightDir, 0.01f, -1.0f, 1.0f))
-				{
-					light.m_direction = Vec3(lightDir[0], lightDir[1], lightDir[2]).GetNormalized();
-				}
-
-				float innerAngle = ACosDegrees(light.m_innerDotThreshold);
-				float outerAngle = ACosDegrees(light.m_outerDotThreshold);
-				float oldInner = innerAngle;
-				float oldOuter = outerAngle;
-
-				if (ImGui::DragFloat("Inner Angle", &innerAngle, 0.5f, 0.0f, 90.0f))
-				{
-					float delta = innerAngle - oldInner;
-					if (delta > 0 && innerAngle > outerAngle - 2.0f)
-					{
-						outerAngle = Min(innerAngle + 2.0f, 90.0f);
-						light.m_outerDotThreshold = CosDegrees(outerAngle);
-					}
-					light.m_innerDotThreshold = CosDegrees(innerAngle);
-				}
-
-				if (ImGui::DragFloat("Outer Angle", &outerAngle, 0.5f, 0.0f, 90.0f))
-				{
-					float delta = outerAngle - oldOuter;
-					if (delta < 0 && outerAngle < innerAngle + 2.0f)
-					{
-						innerAngle = Max(outerAngle - 2.0f, 0.0f);
-						light.m_innerDotThreshold = CosDegrees(innerAngle);
-					}
-					light.m_outerDotThreshold = CosDegrees(outerAngle);
-				}
-			}
-
-			ImGui::DragFloat("Ambience", &light.m_ambience, 0.01f, 0.0f, 1.0f);
-			ImGui::DragFloat("Inner Radius", &light.m_innerRadius, 0.1f, 0.0f, 10.0f);
-			ImGui::DragFloat("Outer Radius", &light.m_outerRadius, 0.1f, 0.0f, 50.0f);
-
-			ImGui::Spacing();
-			ImGui::Separator();
-
-			if (ImGui::Button("Remove Selected Light"))
-			{
-				for (int j = m_uiLightIndex; j < L.m_numLights - 1; ++j)
-					L.m_lightsArray[j] = L.m_lightsArray[j + 1];
-
-				L.m_numLights--;
-				if (L.m_numLights <= 0) m_uiLightIndex = 0;
-				else if (m_uiLightIndex >= L.m_numLights) m_uiLightIndex = L.m_numLights - 1;
-			}
-
-			ImGui::EndChild();
-
-			ImGui::EndTable();
+			ImGui::EndListBox();
 		}
+
+
+		ImGui::TableNextColumn();
+
+		Light& light = L.m_lightsArray[m_uiLightIndex];
+
+		float color[3] = { light.m_color.x, light.m_color.y, light.m_color.z };
+		if (ImGui::ColorEdit3("Color", color))
+		{
+			light.m_color.x = color[0];
+			light.m_color.y = color[1];
+			light.m_color.z = color[2];
+		}
+
+		float intensity = light.m_color.w;
+		if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 200.0f))
+			light.m_color.w = intensity;
+
+		float pos[3] = { light.m_position.x, light.m_position.y, light.m_position.z };
+		if (ImGui::DragFloat3("Position", pos, 0.1f))
+			light.m_position = Vec3(pos[0], pos[1], pos[2]);
+
+
+		float dir[3] = { light.m_direction.x, light.m_direction.y, light.m_direction.z };
+		if (ImGui::DragFloat3("Direction", dir, 0.02f, -1.0f, 1.0f))
+		{
+			Vec3 d = Vec3(dir[0], dir[1], dir[2]);
+
+			if (d.GetLengthSquared() < 0.0001f)
+				d = Vec3(0, 0, -1);
+
+			light.m_direction = d.GetNormalized();
+		}
+
+		float innerAngle = ACosDegrees(light.m_innerDotThreshold);
+		float outerAngle = ACosDegrees(light.m_outerDotThreshold);
+
+		if (ImGui::DragFloat("Inner Angle", &innerAngle, 0.3f, 0.f, 89.f))
+		{
+			innerAngle = GetClamped(innerAngle, 0.f, outerAngle - 0.5f);
+			light.m_innerDotThreshold = CosDegrees(innerAngle);
+		}
+
+		if (ImGui::DragFloat("Outer Angle", &outerAngle, 0.3f, 0.5f, 90.f))
+		{
+			outerAngle = Max(outerAngle, innerAngle + 0.5f);
+			light.m_outerDotThreshold = CosDegrees(outerAngle);
+		}
+
+		ImGui::DragFloat("Ambience", &light.m_ambience, 0.01f, 0.f, 1.f);
+		ImGui::DragFloat("Inner Radius", &light.m_innerRadius, 0.1f, 0.f);
+		ImGui::DragFloat("Outer Radius", &light.m_outerRadius, 0.1f, 0.f);
+
+		ImGui::Spacing();
+
+		if (ImGui::Button("Delete Light"))
+		{
+			for (int j = m_uiLightIndex; j < L.m_numLights - 1; j++)
+				L.m_lightsArray[j] = L.m_lightsArray[j + 1];
+
+			L.m_numLights--;
+			m_uiLightIndex = (int) GetClamped((float)m_uiLightIndex, 0.f, (float)L.m_numLights - 1.f);
+		}
+
+		ImGui::EndTable();
 	}
 
 	ImGui::Separator();
+
 	if (L.m_numLights < MAX_LIGHTS)
 	{
-		if (ImGui::Button("Add Point Light"))
+		if (ImGui::Button("Add Spot Light"))
 		{
 			Light& newLight = L.m_lightsArray[L.m_numLights++];
-			newLight.m_color = Vec4(1.0f, 1.0f, 1.0f, 5.0f);
-			newLight.m_position = Vec3(0, 0, 3);
-			newLight.m_direction = Vec3(0, 0, 0);
-			newLight.m_ambience = 0.1f;
-			newLight.m_innerRadius = 0.5f;
-			newLight.m_outerRadius = 10.0f;
-			newLight.m_innerDotThreshold = -1.0f;
-			newLight.m_outerDotThreshold = -2.0f;
+
+			newLight.m_color = Vec4(1.f, 0.95f, 0.8f, 20.f);
+			newLight.m_position = Vec3(0, 0, 4);
+			newLight.m_direction = Vec3(0, 0, -1);
+
+			newLight.m_ambience = 0.f;
+			newLight.m_innerRadius = 0.f;
+			newLight.m_outerRadius = 15.f;
+
+			newLight.m_innerDotThreshold = CosDegrees(12.f);
+			newLight.m_outerDotThreshold = CosDegrees(25.f);
 
 			m_uiLightIndex = L.m_numLights - 1;
 		}
 
 		ImGui::SameLine();
 
-		if (ImGui::Button("Add Spot Light"))
+		if (ImGui::Button("Add Point Light"))
 		{
-			Light& newLight = L.m_lightsArray[L.m_numLights++];
-			newLight.m_color = Vec4(1.0f, 0.8f, 0.6f, 10.0f);
-			newLight.m_position = Vec3(0, 0, 5);
-			newLight.m_direction = Vec3(0, 0, -1);
-			newLight.m_ambience = 0.0f;
-			newLight.m_innerRadius = 0.0f;
-			newLight.m_outerRadius = 15.0f;
-			newLight.m_innerDotThreshold = CosDegrees(15.0f);
-			newLight.m_outerDotThreshold = CosDegrees(30.0f);
+			if (L.m_numLights >= 64)
+			{
+				return; 
+			}
+
+			Light& newLight = L.m_lightsArray[L.m_numLights];
+			L.m_numLights++;
+
+			newLight.m_color = Vec4(1.f, 1.f, 1.f, 10.f);
+			newLight.m_position = Vec3(0, 0, 3);
+
+			newLight.m_direction = Vec3(0, 0, 0);
+
+			newLight.m_ambience = 0.1f;
+			newLight.m_innerRadius = 0.5f;
+			newLight.m_outerRadius = 12.f;
+
+			newLight.m_innerDotThreshold = -1.f;
+			newLight.m_outerDotThreshold = -2.f;
 
 			m_uiLightIndex = L.m_numLights - 1;
 		}
 	}
 	else
 	{
-		ImGui::Text("Maximum number of lights reached (%d)", MAX_LIGHTS);
+		ImGui::TextDisabled("MAX LIGHTS REACHED");
 	}
 }
+
 
 void Game::ShowSceneGameObjectsPanel()
 {
@@ -1710,8 +1701,6 @@ void Game::ShowForcesPanel()
 {
 	if (!ImGui::CollapsingHeader("Forces", ImGuiTreeNodeFlags_DefaultOpen))
 		return;
-
-	ImGui::Checkbox("Debug Draw Forces", &m_debugDraw);
 
 	if (ImGui::Button("Add Gravity")) {
 		ParticleForce f = ParticleForce::MakeParticleGravity(Vec3(0, 0, -1), 9.8f);
@@ -1978,28 +1967,38 @@ void Game::ShowSceneSelectionPanel()
 		return;
 
 	Scene* cur = m_sceneManager.GetCurrentScene();
-	ImGui::Text("Current Scene: %s", cur ? cur->GetName().c_str() : "None");
 
-	std::vector<std::string> sceneNames;
-	sceneNames.reserve(m_sceneManager.m_scenes.size());
-	for (const auto& pair : m_sceneManager.m_scenes)
+	static std::vector<std::pair<std::string, std::string>> s_sceneDisplay =
 	{
-		sceneNames.push_back(pair.first);
+		{"Frostwood Shelter", "Scene 1"},
+		{"Rune Nexus", "Scene 2"},
+		{"Pulse Sector-7", "Scene 3"},
+		{"Eye of the Dunes", "Scene 4"},
+		{"Bloomfall Sky", "Scene 5"}
+	};
+
+	std::vector<int> validIndices;
+	for (int i = 0; i < (int)s_sceneDisplay.size(); i++)
+	{
+		const std::string& realName = s_sceneDisplay[i].second;
+		if (m_sceneManager.m_scenes.find(realName) != m_sceneManager.m_scenes.end())
+		{
+			validIndices.push_back(i);
+		}
 	}
 
-	if (sceneNames.empty())
+	if (validIndices.empty())
 	{
-		ImGui::Separator();
 		ImGui::TextDisabled("No scenes registered.");
 		return;
 	}
 
 	if (cur)
 	{
-		const std::string& curName = cur->GetName();
-		for (int i = 0; i < (int)sceneNames.size(); ++i)
+		std::string curName = cur->GetName();
+		for (int i = 0; i < (int)validIndices.size(); i++)
 		{
-			if (sceneNames[i] == curName)
+			if (s_sceneDisplay[validIndices[i]].second == curName)
 			{
 				m_uiSceneIndex = i;
 				break;
@@ -2008,58 +2007,77 @@ void Game::ShowSceneSelectionPanel()
 	}
 
 	if (m_uiSceneIndex < 0) m_uiSceneIndex = 0;
-	if (m_uiSceneIndex >= (int)sceneNames.size()) m_uiSceneIndex = (int)sceneNames.size() - 1;
+	if (m_uiSceneIndex >= (int)validIndices.size())
+		m_uiSceneIndex = (int)validIndices.size() - 1;
+
+	ImGui::Text("Current Scene: %s",
+		cur ? s_sceneDisplay[validIndices[m_uiSceneIndex]].first.c_str() : "None");
 
 	ImGui::Separator();
 
-	static float s_fadeDuration = 1.0f;
-	ImGui::SetNextItemWidth(140.f);
-	ImGui::DragFloat("Fade (s)", &s_fadeDuration, 0.05f, 0.0f, 10.0f, "%.2f");
+	static float fade = 1.f;
+	ImGui::DragFloat("Fade", &fade, 0.05f, 0.f, 10.f);
 
-	ImGui::TextUnformatted("Select Scene:");
-	const char* preview = sceneNames[m_uiSceneIndex].c_str();
+	const char* preview =
+		s_sceneDisplay[validIndices[m_uiSceneIndex]].first.c_str();
 
-	ImGui::SetNextItemWidth(-FLT_MIN);
-	if (ImGui::BeginCombo("##SceneCombo", preview))
+	if (ImGui::BeginCombo("Scenes", preview))
 	{
-		for (int i = 0; i < (int)sceneNames.size(); ++i)
+		for (int i = 0; i < (int)validIndices.size(); i++)
 		{
 			bool selected = (i == m_uiSceneIndex);
-			if (ImGui::Selectable(sceneNames[i].c_str(), selected))
+
+			const char* label =
+				s_sceneDisplay[validIndices[i]].first.c_str();
+
+			if (ImGui::Selectable(label, selected))
 			{
 				m_uiSceneIndex = i;
-				SwitchToScene(sceneNames[i], s_fadeDuration);
+
+				const std::string& real =
+					s_sceneDisplay[validIndices[i]].second;
+
+				SwitchToScene(real, fade);
 			}
-			if (selected) ImGui::SetItemDefaultFocus();
+
+			if (selected)
+				ImGui::SetItemDefaultFocus();
 		}
 		ImGui::EndCombo();
 	}
 
-	ImGui::Spacing();
 	if (ImGui::Button("Prev"))
 	{
-		int nextIdx = m_uiSceneIndex - 1;
-		if (nextIdx < 0) nextIdx = (int)sceneNames.size() - 1;
-		m_uiSceneIndex = nextIdx;
-		SwitchToScene(sceneNames[m_uiSceneIndex], s_fadeDuration);
+		m_uiSceneIndex--;
+		if (m_uiSceneIndex < 0)
+			m_uiSceneIndex = (int)validIndices.size() - 1;
+
+		SwitchToScene(
+			s_sceneDisplay[validIndices[m_uiSceneIndex]].second,
+			fade);
 	}
 
 	ImGui::SameLine();
+
 	if (ImGui::Button("Next"))
 	{
-		int nextIdx = m_uiSceneIndex + 1;
-		if (nextIdx >= (int)sceneNames.size()) nextIdx = 0;
-		m_uiSceneIndex = nextIdx;
-		SwitchToScene(sceneNames[m_uiSceneIndex], s_fadeDuration);
+		m_uiSceneIndex++;
+		if (m_uiSceneIndex >= (int)validIndices.size())
+			m_uiSceneIndex = 0;
+
+		SwitchToScene(
+			s_sceneDisplay[validIndices[m_uiSceneIndex]].second,
+			fade);
 	}
 
 	ImGui::SameLine();
-	ImGui::BeginDisabled(cur == nullptr);
+
 	if (ImGui::Button("Reload"))
 	{
-		SwitchToScene(sceneNames[m_uiSceneIndex], s_fadeDuration);
+		SwitchToScene(
+			s_sceneDisplay[validIndices[m_uiSceneIndex]].second,
+			fade);
 	}
-	ImGui::EndDisabled();
 }
 
 void Game::DebugRender() const
@@ -2234,13 +2252,13 @@ void Game::SetupScene1()
 	m_skyTex = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene1/Sky.png");
 
 	m_skyVerts.clear();
-	AddVertsForSkySphere3D(m_skyVerts, Rgba8(255, 255, 255, 255));
+	AddVertsForSkySphere3D(m_skyVerts, Rgba8(200, 205, 210, 255));
 
 	scene->ClearGameObjects();
 	scene->ClearParticleEmitters();
 
-	m_player->SetPosition(Vec3(-3.f, 0.1f, 0.68f));
-	m_player->SetOrientation(EulerAngles(-14.4f, -12.2f, 0.f));
+	scene->SetupStartPosAndOrientation(Vec3(-3.f, 0.1f, 0.68f), EulerAngles(-14.4f, -12.2f, 0.f));
+	scene->ResetPlayer(m_player);
 
 	const int tilesX = 20;
 	const int tilesY = 20;
@@ -2301,6 +2319,15 @@ void Game::SetupScene1()
 	cabin->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene1/cabin_n.png");
 	cabin->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene1/cabin_sge.png");
 
+	GameObject* tent = scene->CreateGameObject(this, "tent");
+	tent->InitializeVertsFromFile("Data/Meshes/tent");
+	tent->SetPosition(Vec3(0.25f, -4.1f, 0.8f));
+	tent->SetScale(Vec3(4.0f, 4.0f, 4.0f));
+	tent->SetOrientation(EulerAngles(-174.f, 0.f, 90.f));
+	tent->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene1/tent.png");
+	tent->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene1/tent_n.png");
+	tent->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene1/tent_sge.png");
+
 	const char* g_treeMeshes[3] =
 	{
 		"Data/Meshes/tree1",
@@ -2344,8 +2371,8 @@ void Game::SetupScene1()
 		treePresets[i]->SetOrientation(EulerAngles(0.f, 0.f, 0.f));
 	}
 
-	float innerRadius = 8.0f;
-	float outerRadius = 20.0f;
+	float innerRadius = 10.0f;
+	float outerRadius = 15.0f;
 	int   treeCount = 30;
 	Vec3  center(3.f, 3.f, 0.f);
 
@@ -2454,14 +2481,14 @@ void Game::SetupScene1()
 
 		fireConfig.subStage.baseVelocity = Vec3(0.f, 0.f, 0.1f);
 		fireConfig.subStage.velocityVariance = Vec3(0.5f, 0.5f, 1.0f);
-		fireConfig.subStage.prob = 0.01f;
+		fireConfig.subStage.prob = 0.1f;
 
 		ParticleEmitter* fireWithSmoke = g_theParticleSystem->CreateEmitter(fireConfig);
 		scene->AddParticleEmitter(fireWithSmoke);
 	}
 
 	{
-		float snowHeight = 15.0f;
+		float snowHeight = 20.0f;
 		float spawnThickness = 3.0f;
 		float areaHalfSize = 50.0f;
 
@@ -2469,7 +2496,7 @@ void Game::SetupScene1()
 		cfg.m_owner = g_theParticleSystem;
 		cfg.name = "SnowField";
 		cfg.mainStage.texPath = "Data/Images/Scene1/snow.png";
-		cfg.blendMode = BlendMode::ALPHA;
+		cfg.blendMode = BlendMode::ALPHA_ADDITIVE;
 
 		cfg.position = Vec3(0.f, 0.f, snowHeight);
 
@@ -2477,20 +2504,20 @@ void Game::SetupScene1()
 			areaHalfSize,
 			spawnThickness * 0.5f);
 
-		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, -2.0f);
-		cfg.mainStage.velocityVariance = Vec3(0.8f, 0.8f, 2.0f);
+		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, -1.0f);
+		cfg.mainStage.velocityVariance = Vec3(0.8f, 0.8f, 0.5f);
 
-		cfg.mainStage.lifetime = 8.0f;
+		cfg.mainStage.lifetime = 30.0f;
 		cfg.mainStage.lifetimeVariance = 2.0f;
 
-		cfg.mainStage.startColor = Rgba8(255, 255, 255, 255);
-		cfg.mainStage.endColor = Rgba8(255, 255, 255, 255);
+		cfg.mainStage.startColor = Rgba8(255, 255, 255, 20);
+		cfg.mainStage.endColor = Rgba8(255, 255, 255, 20);
 
-		cfg.mainStage.startSize = 0.05f;
+		cfg.mainStage.startSize = 0.3f;
 		cfg.mainStage.endSize = 0.08f;
 
-		cfg.spawnRate = 3000.0f;
-		cfg.maxParticles = 200000;
+		cfg.spawnRate = 300000.0f;
+		cfg.maxParticles = 2000000;
 
 		cfg.isLooping = true;
 		cfg.enabled = true;
@@ -2515,10 +2542,10 @@ void Game::SetupScene1()
 		cfg.mainStage.velocityVariance = Vec3(0.1f, 0.1f, 0.f);
 		cfg.mainStage.lifetime = 5.f;
 		cfg.mainStage.lifetimeVariance = 1.f;
-		cfg.mainStage.startColor = Rgba8(127, 127, 127, 100);
-		cfg.mainStage.endColor = Rgba8(127, 127, 127, 0);
-		cfg.spawnRate = 500.f;
-		cfg.maxParticles = 10000;
+		cfg.mainStage.startColor = Rgba8(20, 20, 20, 5);
+		cfg.mainStage.endColor = Rgba8(20, 20, 20, 0);
+		cfg.spawnRate = 1000.f;
+		cfg.maxParticles = 100000;
 		cfg.noiseStrength = 0.8f;
 		cfg.noiseFrequency = 0.4f;
 
@@ -2543,16 +2570,16 @@ void Game::SetupScene3()
 	scene->ClearGameObjects();
 	scene->ClearParticleEmitters();
 
-	m_player->SetPosition(Vec3(-30.5f, -51.f, 3.f));
-	m_player->SetOrientation(EulerAngles(97.f, -18.f, 0.f));
+	scene->SetupStartPosAndOrientation(Vec3(26.5f, 13.f, 3.f), EulerAngles(-152.f, -10, 0.f));
+	scene->ResetPlayer(m_player);
 
 	Lights& L = scene->GetLights();
-	L.m_sunColor = Vec4(1.f, 1.f, 1.f, 0.2f);
-	L.m_sunDirection = Vec3(0.f, -1.f, -1.f).GetNormalized();
+	L.m_sunColor = Vec4(1.f, 1.f, 1.f, 0.1f);
+	L.m_sunDirection = Vec3(0.f, 0.6f, -0.7f).GetNormalized();
 	L.m_numLights = 0;
 
-	const char* kRainTexPath = "Data/Images/rainwater.png";
-	const char* kSplashTexPath = "Data/Images/waterSplash2.png";
+	const char* kRainTexPath = "Data/Images/Scene3/rain.png";
+	const char* kSplashTexPath = "Data/Images/Scene3/waterSplash2.png";
 
 	float groundZ = -1.0f;
 	float rainHeight = groundZ + 50.0f;
@@ -2605,40 +2632,44 @@ void Game::SetupScene3()
 		}
 	}
 
-	const char* kBuildingMeshes[5] = {
+	const char* kBuildingMeshes[6] = {
 		"Data/Meshes/building1",
 		"Data/Meshes/building2",
 		"Data/Meshes/building3",
 		"Data/Meshes/building4",
-		"Data/Meshes/building5"
+		"Data/Meshes/building1",
+		"Data/Meshes/building2"
 	};
 
-	const char* kBuildingTexPaths[5] = {
+	const char* kBuildingTexPaths[6] = {
 		"Data/Images/Scene3/building1.png",
 		"Data/Images/Scene3/building2.png",
 		"Data/Images/Scene3/building3.png",
 		"Data/Images/Scene3/building4.png",
-		"Data/Images/Scene3/building5.png"
+		"Data/Images/Scene3/building1.png",
+		"Data/Images/Scene3/building2.png"
 	};
 
-	const char* kBuildingNTexPaths[5] = {
+	const char* kBuildingNTexPaths[6] = {
 		"Data/Images/Scene3/building1_n.png",
 		"Data/Images/Scene3/building2_n.png",
 		"Data/Images/Scene3/building3_n.png",
 		"Data/Images/Scene3/building4_n.png",
-		"Data/Images/Scene3/building5_n.png"
+		"Data/Images/Scene3/building1_n.png",
+		"Data/Images/Scene3/building2_n.png"
 	};
 
-	const char* kBuildingSGETexPaths[5] = {
-		"Data/Images/Scene3/building1_SGE.png",
-		"Data/Images/Scene3/building2_SGE.png",
-		"Data/Images/Scene3/building3_SGE.png",
-		"Data/Images/Scene3/building4_SGE.png",
-		"Data/Images/Scene3/building5_SGE.png"
+	const char* kBuildingSGETexPaths[6] = {
+		"Data/Images/Scene3/building1_sge.png",
+		"Data/Images/Scene3/building2_sge.png",
+		"Data/Images/Scene3/building3_sge.png",
+		"Data/Images/Scene3/building4_sge.png",
+		"Data/Images/Scene3/building1_sge.png",
+		"Data/Images/Scene3/building2_sge.png"
 	};
 
-	Texture* buildingTex[5], * buildingNTex[5], * buildingSGETex[5];
-	for (int i = 0; i < 5; ++i) {
+	Texture* buildingTex[6], * buildingNTex[6], * buildingSGETex[6];
+	for (int i = 0; i < 6; ++i) {
 		buildingTex[i] = g_theRenderer->CreateOrGetTextureFromFile(kBuildingTexPaths[i]);
 		buildingNTex[i] = g_theRenderer->CreateOrGetTextureFromFile(kBuildingNTexPaths[i]);
 		buildingSGETex[i] = g_theRenderer->CreateOrGetTextureFromFile(kBuildingSGETexPaths[i]);
@@ -2651,17 +2682,19 @@ void Game::SetupScene3()
 		Vec3 positionOffset;
 	};
 
-	BuildingParams params[5] = {
-		{ 30.0f,  32.0f,   0.0f, Vec3(0.0f,   20.0f, 0) },
-		{ 18.0f,  20.0f,  90.0f, Vec3(-50.0f,  -40.0f, 0) },
-		{ 26.0f,  28.0f, -45.0f, Vec3(-45.0f,   35.0f, 0) },
-		{ 22.0f,  24.0f,  45.0f, Vec3(45.0f,   35.0f, 0) },
-		{ 38.0f,  40.0f,   0.0f, Vec3(0.0f,  -80.0f, 0) } 
+	BuildingParams params[6] = {
+	{ 30.0f, 32.0f, 0.0f, Vec3(-40.0f,  30.0f, 0) },
+	{ 18.0f, 20.0f, 0.0f, Vec3(0.0f,  40.0f, 0) },
+	{ 26.0f, 28.0f, 0.0f, Vec3(40.0f,  30.0f, 0) },
+
+	{ 22.0f, 24.0f, 0.0f, Vec3(-40.0f, -30.0f, 0) },
+	{ 38.0f, 40.0f, 0.0f, Vec3(0.0f, -30.0f, 0) },
+	{ 18.0f, 20.0f, 180.0f, Vec3(40.0f, -40.0f, 0) }
 	};
 
-	GameObject* buildings[5] = { nullptr };
+	GameObject* buildings[6] = { nullptr };
 
-	for (int i = 0; i < 5; ++i)
+	for (int i = 0; i < 6; ++i)
 	{
 		char name[32];
 		snprintf(name, sizeof(name), "Building%d", i + 1);
@@ -2684,6 +2717,97 @@ void Game::SetupScene3()
 	}
 
 	{
+		GameObject* car = scene->CreateGameObject(this, "Car");
+		car->InitializeVertsFromFile("Data/Meshes/car");
+		car->SetPosition(Vec3(-27.f, -16.9f, 2.f));
+		car->SetScale(Vec3(10.f, 10.f, 10.f));
+		car->SetOrientation(EulerAngles(-70.f, 0.f, 90.f));
+		car->SetColor(Rgba8::WHITE);
+		car->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car.png");
+		car->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car_n.png");
+		car->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car_sge.png");
+	}
+
+	{
+		GameObject* car = scene->CreateGameObject(this, "Car");
+		car->InitializeVertsFromFile("Data/Meshes/car");
+		car->SetPosition(Vec3(11.f, 16.9f, 2.f));
+		car->SetScale(Vec3(10.f, 10.f, 10.f));
+		car->SetOrientation(EulerAngles(30.f, 0.f, 90.f));
+		car->SetColor(Rgba8::WHITE);
+		car->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car.png");
+		car->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car_n.png");
+		car->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car_sge.png");
+	}
+
+	{
+		GameObject* car = scene->CreateGameObject(this, "Car");
+		car->InitializeVertsFromFile("Data/Meshes/car");
+		car->SetPosition(Vec3(34.f, -17.f, 2.f));
+		car->SetScale(Vec3(10.f, 10.f, 10.f));
+		car->SetOrientation(EulerAngles(-196.f, 0.f, 90.f));
+		car->SetColor(Rgba8::WHITE);
+		car->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car.png");
+		car->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car_n.png");
+		car->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/car_sge.png");
+	}
+
+	for (int i = 0; i < 4; i++)
+	{
+		GameObject* left = scene->CreateGameObject(this, Stringf("StreetLight_l%d", i));
+		GameObject* right = scene->CreateGameObject(this, Stringf("StreetLight_r%d", i));
+
+		float spacing = 40.0f;
+		float x = -60.0f + i * spacing;
+
+		// ===== LEFT MODEL =====
+		left->SetPosition(Vec3(x, 15.0f, 10.0f));
+		left->InitializeVertsFromFile("Data/Meshes/streetlight1");
+		left->SetScale(Vec3(10.0f, 10.0f, 10.0f));
+		left->SetOrientation(EulerAngles(0.f, 0.f, 90.f));
+		left->SetColor(Rgba8::WHITE);
+		left->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/streetlight1.png");
+
+		// ⭐ LEFT POINT LIGHT
+		Light& leftLight = L.m_lightsArray[L.m_numLights++];
+
+		leftLight.m_color = Vec4(0.4f, 0.7f, 1.0f, 1.f);
+		leftLight.m_position = Vec3(x, 15.0f, 16.5f);
+		leftLight.m_direction = Vec3(0, 0, 0);
+
+		leftLight.m_ambience = 0.05f;
+		leftLight.m_innerRadius = 5.5f;
+		leftLight.m_outerRadius = 34.f;
+
+		leftLight.m_innerDotThreshold = -1.f;
+		leftLight.m_outerDotThreshold = -2.f;
+
+
+		// ===== RIGHT MODEL =====
+		right->SetPosition(Vec3(x, -15.0f, 10.0f));
+		right->InitializeVertsFromFile("Data/Meshes/streetlight1");
+		right->SetScale(Vec3(10.0f, 10.0f, 10.0f));
+		right->SetOrientation(EulerAngles(180.f, 0.f, 90.f));
+		right->SetColor(Rgba8::WHITE);
+		right->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/streetlight1.png");
+
+		// ⭐ RIGHT POINT LIGHT
+		Light& rightLight = L.m_lightsArray[L.m_numLights++];
+
+		rightLight.m_color = Vec4(1.0f, 0.3f, 0.7f, 1.f);
+		rightLight.m_position = Vec3(x, -15.0f, 16.5f);
+		rightLight.m_direction = Vec3(0, 0, 0);
+
+		rightLight.m_ambience = 0.05f;
+		rightLight.m_innerRadius = 5.5f;
+		rightLight.m_outerRadius = 34.f;
+
+		rightLight.m_innerDotThreshold = -1.f;
+		rightLight.m_outerDotThreshold = -2.f;
+	}
+
+
+	{
 		ParticleEmitterConfig cfg;
 		cfg.m_owner = g_theParticleSystem;
 		cfg.name = "BigRain";
@@ -2702,14 +2826,14 @@ void Game::SetupScene3()
 		cfg.mainStage.lifetime = 99.0f;
 		cfg.mainStage.lifetimeVariance = 0.f;
 
-		cfg.mainStage.startColor = Rgba8(255, 255, 255, 220);
+		cfg.mainStage.startColor = Rgba8(255, 255, 255, 100);
 		cfg.mainStage.endColor = Rgba8(200, 200, 255, 0);
 
-		cfg.mainStage.startSize = 0.05f;
-		cfg.mainStage.endSize = 0.05f;
+		cfg.mainStage.startSize = 0.2f;
+		cfg.mainStage.endSize = 0.2f;
 		cfg.mainStage.billboardType = 0u;
 
-		cfg.spawnRate = 200000.0f;
+		cfg.spawnRate = 100000.0f;
 		cfg.maxParticles = 1000000;
 
 		cfg.isLooping = true;
@@ -2722,21 +2846,22 @@ void Game::SetupScene3()
 		cfg.subStage.lifetime = 0.35f;
 		cfg.subStage.lifetimeVariance = 0.10f;
 
-		cfg.subStage.startColor = Rgba8(180, 180, 220, 255);
+		cfg.subStage.startColor = Rgba8(180, 180, 220, 200);
 		cfg.subStage.endColor = Rgba8(180, 180, 220, 0);
 
-		cfg.subStage.startSize = 0.8f;
-		cfg.subStage.endSize = 1.5f;
+		cfg.subStage.startSize = 1.8f;
+		cfg.subStage.endSize = 2.5f;
 
 		cfg.subStage.baseVelocity = Vec3(0.f, 0.f, 0.f);
 		cfg.subStage.velocityVariance = Vec3(0.f, 0.f, 0.0f);
 
-		cfg.subStage.prob = 1.0f;
+		cfg.subStage.prob = 0.5f;
 		cfg.subStage.billboardType = 1u;
 
 		ParticleEmitter* rainEmitter = g_theParticleSystem->CreateEmitter(cfg);
 		scene->AddParticleEmitter(rainEmitter);
 	}
+
 
 
 }
@@ -2754,8 +2879,8 @@ void Game::SetupScene4()
 	scene->ClearParticleEmitters();
 	g_theParticleSystem->ClearForces();
 
-	m_player->SetPosition(Vec3(-40.f, 33.1f, 2.68f));
-	m_player->SetOrientation(EulerAngles(-48.4f, -14.2f, 0.f));
+	scene->SetupStartPosAndOrientation(Vec3(-40.f, 33.1f, 2.68f), EulerAngles(-48.4f, -14.2f, 0.f));
+	scene->ResetPlayer(m_player);
 
 	const int tilesX = 50;
 	const int tilesY = 50;
@@ -2777,7 +2902,7 @@ void Game::SetupScene4()
 			tile->SetPosition(Vec3(-halfW + (x + 0.5f) * tileSize,
 				-halfH + (y + 0.5f) * tileSize,
 				-0.5f));
-			tile->SetColor(Rgba8(230, 210, 170, 255));
+			tile->SetColor(Rgba8(100, 100, 100, 255));
 			tile->m_diffuseTexture = sandD;
 			tile->m_normalTexture = sandN;
 			tile->m_specGlossEmitTexture = sandSGE;
@@ -2867,24 +2992,28 @@ void Game::SetupScene4()
 	L.m_sunDirection = Vec3(0.70f, -0.10f, -0.70f).GetNormalized();
 	L.m_numLights = 0;
 
+	float angle = m_tornadoTime * m_tornadoMoveSpeed * 360.f;
+	Vec2 circle = Vec2::MakeFromPolarDegrees(angle, m_tornadoMoveRadius);
+
+	Vec3 pos = Vec3(circle.x, circle.y, 0.f);
 
 	{
 		ParticleEmitterConfig cfg;
 		cfg.m_owner = g_theParticleSystem;
 		cfg.name = "TornadoCoreFine";
 		cfg.mainStage.texPath = "Data/Images/Scene4/dust1.png";
-		cfg.blendMode = BlendMode::ALPHA_ADDITIVE;
-		cfg.position = Vec3(0.f, 0.f, 1.8f);
+		cfg.blendMode = BlendMode::ALPHA;
+		cfg.position = pos;
 		cfg.spawnArea = Vec3(1.4f, 1.4f, 5.5f);
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.04f);
 		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.50f);
 		cfg.mainStage.lifetime = 5.5f;
 		cfg.mainStage.lifetimeVariance = 3.0f;
-		cfg.mainStage.startColor = Rgba8(120, 80, 60, 5); 
-		cfg.mainStage.endColor = Rgba8(220, 200, 160, 5);
-		cfg.mainStage.startSize = 0.15f;
+		cfg.mainStage.startColor = Rgba8(255, 220, 200, 255); 
+		cfg.mainStage.endColor = Rgba8(220, 200, 160, 50);
+		cfg.mainStage.startSize = 0.05f;
 		cfg.mainStage.endSize = 1.2f;
-		cfg.spawnRate = 35000.0f; 
+		cfg.spawnRate = 100000.0f; 
 		cfg.maxParticles = 1500000;
 		cfg.isLooping = true;
 		cfg.enabled = true;
@@ -2893,6 +3022,7 @@ void Game::SetupScene4()
 		cfg.noiseFrequency = 1.0f;
 		ParticleEmitter* em = g_theParticleSystem->CreateEmitter(cfg);
 		scene->AddParticleEmitter(em);
+		m_tornadoEmitters.push_back(em);
 	}
 
 	{
@@ -2901,18 +3031,18 @@ void Game::SetupScene4()
 		cfg.name = "TornadoCoreFine";
 		cfg.mainStage.texPath = "Data/Images/Scene4/dust1.png";
 		cfg.blendMode = BlendMode::ALPHA;
-		cfg.position = Vec3(0.f, 0.f, 1.8f);
+		cfg.position = pos;
 		cfg.spawnArea = Vec3(1.4f, 1.4f, 5.5f);
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.04f);
 		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.50f);
 		cfg.mainStage.lifetime = 5.5f;
 		cfg.mainStage.lifetimeVariance = 3.0f;
-		cfg.mainStage.startColor = Rgba8(100, 60, 20, 255); 
+		cfg.mainStage.startColor = Rgba8(100, 60, 40, 255); 
 		cfg.mainStage.endColor = Rgba8(220, 200, 180, 30);
-		cfg.mainStage.startSize = 0.15f;
+		cfg.mainStage.startSize = 0.02f;
 		cfg.mainStage.endSize = 1.2f;
-		cfg.spawnRate = 25000.0f; 
-		cfg.maxParticles = 150000;
+		cfg.spawnRate = 100000.0f; 
+		cfg.maxParticles = 1500000;
 		cfg.isLooping = true;
 		cfg.enabled = true;
 		cfg.duration = -1.0f;
@@ -2920,6 +3050,7 @@ void Game::SetupScene4()
 		cfg.noiseFrequency = 1.0f;
 		ParticleEmitter* em = g_theParticleSystem->CreateEmitter(cfg);
 		scene->AddParticleEmitter(em);
+		m_tornadoEmitters.push_back(em);
 	}
 
 	{
@@ -2928,18 +3059,18 @@ void Game::SetupScene4()
 		cfg.name = "TornadoCoreFine";
 		cfg.mainStage.texPath = "Data/Images/Scene4/dust1.png";
 		cfg.blendMode = BlendMode::ALPHA;
-		cfg.position = Vec3(0.f, 0.f, 1.8f);
+		cfg.position = pos;
 		cfg.spawnArea = Vec3(1.4f, 1.4f, 5.5f);
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.04f);
 		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.50f); 
 		cfg.mainStage.lifetime = 5.5f;
 		cfg.mainStage.lifetimeVariance = 3.0f;
-		cfg.mainStage.startColor = Rgba8(60, 40, 20, 255);
+		cfg.mainStage.startColor = Rgba8(50, 30, 20, 255);
 		cfg.mainStage.endColor = Rgba8(180, 160, 130, 30);
-		cfg.mainStage.startSize = 0.15f;
+		cfg.mainStage.startSize = 0.02f;
 		cfg.mainStage.endSize = 1.2f;
-		cfg.spawnRate = 15000.0f; 
-		cfg.maxParticles = 150000;
+		cfg.spawnRate = 100000.0f; 
+		cfg.maxParticles = 1500000;
 		cfg.isLooping = true;
 		cfg.enabled = true;
 		cfg.duration = -1.0f;
@@ -2947,6 +3078,35 @@ void Game::SetupScene4()
 		cfg.noiseFrequency = 1.0f;
 		ParticleEmitter* em = g_theParticleSystem->CreateEmitter(cfg);
 		scene->AddParticleEmitter(em);
+		m_tornadoEmitters.push_back(em);
+	}
+
+	{
+		ParticleEmitterConfig cfg;
+		cfg.m_owner = g_theParticleSystem;
+		cfg.name = "TornadoCoreFine";
+		cfg.mainStage.texPath = "Data/Images/Scene4/smoke.png";
+		cfg.blendMode = BlendMode::ALPHA_ADDITIVE;
+		cfg.position = pos;
+		cfg.spawnArea = Vec3(10.f, 10.f, 5.5f);
+		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.04f);
+		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.50f);
+		cfg.mainStage.lifetime = 5.5f;
+		cfg.mainStage.lifetimeVariance = 3.0f;
+		cfg.mainStage.startColor = Rgba8(10, 10, 10, 1);
+		cfg.mainStage.endColor = Rgba8(180, 160, 130, 1);
+		cfg.mainStage.startSize = 0.02f;
+		cfg.mainStage.endSize = 1.2f;
+		cfg.spawnRate = 100000.0f;
+		cfg.maxParticles = 1500000;
+		cfg.isLooping = true;
+		cfg.enabled = true;
+		cfg.duration = -1.0f;
+		cfg.noiseStrength = 1.0f;
+		cfg.noiseFrequency = 1.0f;
+		ParticleEmitter* em = g_theParticleSystem->CreateEmitter(cfg);
+		scene->AddParticleEmitter(em);
+		m_tornadoEmitters.push_back(em);
 	}
 
 	{
@@ -2955,7 +3115,7 @@ void Game::SetupScene4()
 		cfg.name = "GroundSandLift";
 		cfg.mainStage.texPath = "Data/Images/Scene4/pebble1.png";
 		cfg.blendMode = BlendMode::ALPHA;
-		cfg.position = Vec3(0.f, 0.f, 0.2f);
+		cfg.position = pos;
 		cfg.spawnArea = Vec3(6.0f, 6.0f, 1.0f); 
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.6f); 
 		cfg.mainStage.velocityVariance = Vec3(1.2f, 1.2f, 1.8f); 
@@ -2982,7 +3142,7 @@ void Game::SetupScene4()
 		cfg.name = "MidDustClumps";
 		cfg.mainStage.texPath = "Data/Images/Scene4/pebble2.png"; 
 		cfg.blendMode = BlendMode::ALPHA;
-		cfg.position = Vec3(0.f, 0.f, 5.0f);
+		cfg.position = pos;
 		cfg.spawnArea = Vec3(3.0f, 3.0f, 10.0f);
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.03f);
 		cfg.mainStage.velocityVariance = Vec3(0.25f, 0.25f, 0.35f);
@@ -3001,6 +3161,7 @@ void Game::SetupScene4()
 		cfg.noiseFrequency = 0.55f;
 		ParticleEmitter* em = g_theParticleSystem->CreateEmitter(cfg);
 		scene->AddParticleEmitter(em);
+		m_tornadoEmitters.push_back(em);
 	}
 
 
@@ -3011,7 +3172,7 @@ void Game::SetupScene4()
 		cfg.name = "TopMistDiffusion";
 		cfg.mainStage.texPath = "Data/Images/Scene4/dust2.png"; 
 		cfg.blendMode = BlendMode::ALPHA;
-		cfg.position = Vec3(0.f, 0.f, 35.0f);
+		cfg.position = pos;
 		cfg.spawnArea = Vec3(10.0f, 10.0f, 10.0f);
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 5.0f);
 		cfg.mainStage.velocityVariance = Vec3(0.4f, 0.4f, 0.6f);
@@ -3030,13 +3191,14 @@ void Game::SetupScene4()
 		cfg.noiseFrequency = 0.7f;
 		ParticleEmitter* em = g_theParticleSystem->CreateEmitter(cfg);
 		scene->AddParticleEmitter(em);
+		m_tornadoEmitters.push_back(em);
 	}
 
 	{
 		ParticleEmitterConfig cfg;
 		cfg.m_owner = g_theParticleSystem;
 		cfg.name = "GroundDustRise";
-		cfg.mainStage.texPath = "Data/Images/Scene4/dust2.png"; 
+		cfg.mainStage.texPath = "Data/Images/Scene4/dust3.png"; 
 		cfg.blendMode = BlendMode::ALPHA;
 		cfg.position = Vec3(0.f, 0.f, 0.15f);
 		cfg.spawnArea = Vec3(100.f, 100.f, 0.6f);
@@ -3086,6 +3248,7 @@ void Game::SetupScene4()
 		scene->AddParticleEmitter(em);
 	}
 
+
 	{
 		ParticleForce tornado = ParticleForce::MakeFlowColumn(
 			Vec3(0.f, 0.f, 0.f),                    
@@ -3100,7 +3263,8 @@ void Game::SetupScene4()
 			5.0f,
 			FLOW_SWIRL_ENABLE | FLOW_RADIAL_ENABLE | FLOW_AXIAL_ENABLE
 		);
-		g_theParticleSystem->AddForce(tornado);
+		uint32_t idx = g_theParticleSystem->AddForce(tornado);
+		m_tornadoForceIndices.push_back(idx);
 	}
 
 	{
@@ -3117,7 +3281,9 @@ void Game::SetupScene4()
 			2.5f,
 			FLOW_RADIAL_OUTWARD | FLOW_AXIAL_ENABLE
 		);
-		g_theParticleSystem->AddForce(topDiffusion);
+		uint32_t idx = g_theParticleSystem->AddForce(topDiffusion);
+		m_tornadoForceIndices.push_back(idx);
+
 	}
 
 	{
@@ -3134,7 +3300,9 @@ void Game::SetupScene4()
 			3.0f,
 			FLOW_SWIRL_ENABLE | FLOW_RADIAL_ENABLE | FLOW_AXIAL_ENABLE
 		);
-		g_theParticleSystem->AddForce(midSwirl);
+		uint32_t idx = g_theParticleSystem->AddForce(midSwirl);
+		m_tornadoForceIndices.push_back(idx);
+
 	}
 
 	{
@@ -3151,11 +3319,14 @@ void Game::SetupScene4()
 			4.0f,
 			FLOW_SWIRL_ENABLE | FLOW_RADIAL_ENABLE | FLOW_AXIAL_ENABLE
 		);
-		g_theParticleSystem->AddForce(noisePerturb);
+		uint32_t idx = g_theParticleSystem->AddForce(noisePerturb);
+		m_tornadoForceIndices.push_back(idx);
+
 	}
 
 
 }
+
 void Game::SetupScene5()
 {
 	Scene* scene = GetCurrentScene();
@@ -3169,8 +3340,308 @@ void Game::SetupScene5()
 	scene->ClearGameObjects();
 	scene->ClearParticleEmitters();
 
-	m_player->SetPosition(Vec3(-26.5f, -19.f, 5.f));
-	m_player->SetOrientation(EulerAngles(-270.f, 4.4f, 0.f));
+	scene->SetupStartPosAndOrientation(Vec3(1.45f, -26.f, 5.f), EulerAngles(-270.f, -23.f, 0.f));
+	scene->ResetPlayer(m_player);
+
+
+	GameObject* island = scene->CreateGameObject(this, "Island");
+	island->InitializeVertsFromFile("Data/Meshes/island");
+	island->SetPosition(Vec3(0.f, 0.f, 0.f));
+	island->SetScale(Vec3(50.f, 50.f, 50.f));
+	island->SetOrientation(EulerAngles(0.f, 0.f, 90.f));
+
+	island->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene5/island.png");
+	island->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene5/island_n.png");
+	island->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene5/island_sge.png");
+
+	island->SetColor(Rgba8::WHITE);
+
+
+	GameObject* sakura1 = scene->CreateGameObject(this, "Sakura1");
+	sakura1->InitializeVertsFromFile("Data/Meshes/sakura1");
+	sakura1->SetPosition(Vec3(-13.4f, 32.2f, 32.2f));
+	sakura1->SetScale(Vec3(50.f, 50.f, 50.f));
+	sakura1->SetOrientation(EulerAngles(0.f, 0.f, 90.f));
+
+	sakura1->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene5/sakura1.png");
+	sakura1->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene5/sakura1_n.png");
+	sakura1->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene5/sakura1_sge.png");
+
+	sakura1->SetColor(Rgba8::WHITE);
+
+
+	scene->ClearParticleEmitters();
+	g_theParticleSystem->ClearForces();
+
+	Vec3 fxCenter = Vec3(0.f, 0.f, 0.f);
+	Vec3 camPos = m_player ? m_player->GetPosition() : fxCenter;
+	fxCenter = camPos;
+
+	Vec3 treePos = sakura1->GetPosition();
+
+	{
+		ParticleEmitterConfig cfg;
+		cfg.m_owner = g_theParticleSystem;
+		cfg.name = "Petals_CanopyDrop";
+		cfg.mainStage.texPath = "Data/Images/Scene5/petal_soft.png";
+		cfg.blendMode = BlendMode::ALPHA;
+
+		cfg.position = treePos + Vec3(0.f, 0.f, 12.0f);
+		cfg.spawnArea = Vec3(52.f, 52.f, 14.f);
+
+		cfg.mainStage.baseVelocity = Vec3(0.20f, 0.05f, -0.70f);
+		cfg.mainStage.velocityVariance = Vec3(0.70f, 0.70f, 0.35f);
+
+		cfg.mainStage.lifetime = 7.0f;
+		cfg.mainStage.lifetimeVariance = 3.0f;
+
+		cfg.mainStage.startColor = Rgba8(255, 210, 235, 170);
+		cfg.mainStage.endColor = Rgba8(255, 210, 235, 25);
+
+		cfg.mainStage.startSize = 0.90f;
+		cfg.mainStage.endSize = 1.70f;
+
+		cfg.spawnRate = 2600.0f;
+		cfg.maxParticles = 140000;
+
+		cfg.isLooping = true;
+		cfg.enabled = true;
+		cfg.duration = -1.0f;
+
+		cfg.noiseStrength = 1.25f;
+		cfg.noiseFrequency = 0.75f;
+
+		scene->AddParticleEmitter(g_theParticleSystem->CreateEmitter(cfg));
+	}
+	{
+		ParticleEmitterConfig cfg;
+		cfg.m_owner = g_theParticleSystem;
+		cfg.name = "Petals_TrunkSwirl";
+		cfg.mainStage.texPath = "Data/Images/Scene5/petal_soft.png";
+		cfg.blendMode = BlendMode::ALPHA;
+
+		cfg.position = treePos + Vec3(0.f, 0.f, 5.0f);
+		cfg.spawnArea = Vec3(58.f, 58.f, 18.f);
+
+		cfg.mainStage.baseVelocity = Vec3(0.10f, 0.03f, -0.35f);
+		cfg.mainStage.velocityVariance = Vec3(0.55f, 0.55f, 0.25f);
+
+		cfg.mainStage.lifetime = 6.5f;
+		cfg.mainStage.lifetimeVariance = 2.5f;
+
+		cfg.mainStage.startColor = Rgba8(255, 205, 235, 140);
+		cfg.mainStage.endColor = Rgba8(255, 205, 235, 10);
+
+		cfg.mainStage.startSize = 0.70f;
+		cfg.mainStage.endSize = 1.40f;
+
+		cfg.spawnRate = 1600.0f;
+		cfg.maxParticles = 90000;
+
+		cfg.isLooping = true;
+		cfg.enabled = true;
+		cfg.duration = -1.0f;
+
+		cfg.noiseStrength = 1.0f;
+		cfg.noiseFrequency = 0.9f;
+
+		scene->AddParticleEmitter(g_theParticleSystem->CreateEmitter(cfg));
+	}
+	{
+		ParticleEmitterConfig cfg;
+		cfg.m_owner = g_theParticleSystem;
+		cfg.name = "Petals_ClosePassTree";
+		cfg.mainStage.texPath = "Data/Images/Scene5/petal_streak.png";
+		cfg.blendMode = BlendMode::ALPHA;
+
+		cfg.position = treePos + Vec3(0.f, 0.f, 2.0f);
+		cfg.spawnArea = Vec3(50.5f, 50.5f, 3.0f);
+
+		cfg.mainStage.baseVelocity = Vec3(1.3f, 0.4f, -0.15f);
+		cfg.mainStage.velocityVariance = Vec3(2.0f, 2.0f, 0.25f);
+
+		cfg.mainStage.lifetime = 1.4f;
+		cfg.mainStage.lifetimeVariance = 0.6f;
+
+		cfg.mainStage.startColor = Rgba8(255, 220, 240, 210);
+		cfg.mainStage.endColor = Rgba8(255, 220, 240, 0);
+
+		cfg.mainStage.startSize = 1.50f;
+		cfg.mainStage.endSize = 2.40f;
+
+		cfg.spawnRate = 80.0f;
+		cfg.maxParticles = 3000;
+
+		cfg.isLooping = true;
+		cfg.enabled = true;
+		cfg.duration = -1.0f;
+
+		cfg.noiseStrength = 0.8f;
+		cfg.noiseFrequency = 1.2f;
+
+		scene->AddParticleEmitter(g_theParticleSystem->CreateEmitter(cfg));
+	}
+	{
+		ParticleEmitterConfig cfg;
+		cfg.m_owner = g_theParticleSystem;
+		cfg.name = "Petals_GroundDrift";
+		cfg.mainStage.texPath = "Data/Images/Scene5/petal_soft.png";
+		cfg.blendMode = BlendMode::ALPHA;
+
+		cfg.position = treePos + Vec3(0.f, 0.f, 0.8f);
+		cfg.spawnArea = Vec3(60.f, 60.f, 2.0f);
+
+		cfg.mainStage.baseVelocity = Vec3(0.25f, 0.08f, 0.02f);
+		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.06f);
+
+		cfg.mainStage.lifetime = 6.0f;
+		cfg.mainStage.lifetimeVariance = 2.5f;
+
+		cfg.mainStage.startColor = Rgba8(255, 210, 235, 90);
+		cfg.mainStage.endColor = Rgba8(255, 210, 235, 0);
+
+		cfg.mainStage.startSize = 0.60f;
+		cfg.mainStage.endSize = 1.10f;
+
+		cfg.spawnRate = 900.0f;
+		cfg.maxParticles = 50000;
+
+		cfg.isLooping = true;
+		cfg.enabled = true;
+		cfg.duration = -1.0f;
+
+		cfg.noiseStrength = 0.6f;
+		cfg.noiseFrequency = 0.7f;
+
+		scene->AddParticleEmitter(g_theParticleSystem->CreateEmitter(cfg));
+	}
+	{
+		ParticleEmitterConfig cfg;
+		cfg.m_owner = g_theParticleSystem;
+		cfg.name = "Pollen_Air";
+		cfg.mainStage.texPath = "Data/Images/Scene5/pollen.png";
+		cfg.blendMode = BlendMode::ALPHA;
+
+		cfg.position = treePos + Vec3(0.f, 0.f, 8.0f);
+		cfg.spawnArea = Vec3(60.f, 60.f, 30.f);
+
+		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.f);
+		cfg.mainStage.velocityVariance = Vec3(0.02f, 0.02f, 0.02f);
+
+		cfg.mainStage.lifetime = 18.0f;
+		cfg.mainStage.lifetimeVariance = 6.0f;
+
+		cfg.mainStage.startColor = Rgba8(255, 245, 235, 25);
+		cfg.mainStage.endColor = Rgba8(255, 245, 235, 0);
+
+		cfg.mainStage.startSize = 0.14f;
+		cfg.mainStage.endSize = 0.20f;
+
+		cfg.spawnRate = 1200.0f;
+		cfg.maxParticles = 40000;
+
+		cfg.isLooping = true;
+		cfg.enabled = true;
+		cfg.duration = -1.0f;
+
+		cfg.noiseStrength = 0.2f;
+		cfg.noiseFrequency = 0.3f;
+
+		scene->AddParticleEmitter(g_theParticleSystem->CreateEmitter(cfg));
+	}
+
+	{
+		ParticleEmitterConfig cfg;
+		cfg.m_owner = g_theParticleSystem;
+		cfg.name = "Petals_UpperDrift";
+		cfg.mainStage.texPath = "Data/Images/Scene5/petal_soft.png";
+		cfg.blendMode = BlendMode::ALPHA;
+
+		cfg.position = Vec3(8.f, 5.f, 35.f);
+		cfg.spawnArea = Vec3(30.f, 30.f, 10.f);
+
+		cfg.mainStage.baseVelocity = Vec3(0.6f, 0.2f, -0.15f);
+		cfg.mainStage.velocityVariance = Vec3(0.4f, 0.4f, 0.2f);
+
+		cfg.mainStage.lifetime = 10.0f;
+		cfg.mainStage.lifetimeVariance = 4.0f;
+
+		cfg.mainStage.startColor = Rgba8(255, 210, 235, 90);
+		cfg.mainStage.endColor = Rgba8(255, 210, 235, 0);
+
+		cfg.mainStage.startSize = 0.9f;
+		cfg.mainStage.endSize = 1.6f;
+
+		cfg.spawnRate = 1200.0f;
+		cfg.maxParticles = 60000;
+
+		cfg.isLooping = true;
+		cfg.enabled = true;
+		cfg.duration = -1.0f;
+
+		cfg.noiseStrength = 0.6f;
+		cfg.noiseFrequency = 0.5f;
+
+		ParticleEmitter* em = g_theParticleSystem->CreateEmitter(cfg);
+		scene->AddParticleEmitter(em);
+	}
+
+	{
+		ParticleEmitterConfig cfg;
+		cfg.m_owner = g_theParticleSystem;
+		cfg.name = "Petals_CrownEdge";
+		cfg.mainStage.texPath = "Data/Images/Scene5/petal_soft.png";
+		cfg.blendMode = BlendMode::ALPHA;
+
+		cfg.position = Vec3(-25.f, 25.5f, 30.f);
+		cfg.spawnArea = Vec3(20.f, 20.f, 8.f);
+
+		cfg.mainStage.baseVelocity = Vec3(0.4f, 0.1f, -0.25f);
+		cfg.mainStage.velocityVariance = Vec3(0.8f, 0.8f, 0.3f);
+
+		cfg.mainStage.lifetime = 6.0f;
+		cfg.mainStage.lifetimeVariance = 2.5f;
+
+		cfg.mainStage.startColor = Rgba8(255, 215, 240, 110);
+		cfg.mainStage.endColor = Rgba8(255, 215, 240, 0);
+
+		cfg.mainStage.startSize = 0.7f;
+		cfg.mainStage.endSize = 1.3f;
+
+		cfg.spawnRate = 1200.0f;
+		cfg.maxParticles = 70000;
+
+		cfg.isLooping = true;
+		cfg.enabled = true;
+		cfg.duration = -1.0f;
+
+		cfg.noiseStrength = 1.4f;
+		cfg.noiseFrequency = 1.0f;
+
+		ParticleEmitter* em = g_theParticleSystem->CreateEmitter(cfg);
+		scene->AddParticleEmitter(em);
+	}
+
+	{
+		Vec3 windDir = Vec3(1.0f, 0.35f, -0.05f).GetNormalized();
+
+		ParticleForce wind = ParticleForce::MakeParticleDirectionForce(
+			windDir,
+			2.2f,
+			120.f,
+			treePos + Vec3(0.f, 0.f, 8.f)
+		);
+
+		g_theParticleSystem->AddForce(wind);
+	}
+
+	{
+		Vec3 gravityDir = Vec3(0.f, 0.f, -1.f);
+
+		ParticleForce gravity = ParticleForce::MakeParticleGravity(gravityDir, 1.0f);
+
+		g_theParticleSystem->AddForce(gravity);
+	}
 }
 
 void Game::SetupScene2()
@@ -3182,16 +3653,19 @@ void Game::SetupScene2()
 	AddVertsForSkySphere3D(m_skyVerts, Rgba8(200, 200, 200, 255));
 	scene->ClearGameObjects();
 	scene->ClearParticleEmitters();
-	m_player->SetPosition(Vec3(0.1f, 2.1f, 2.37f));
-	m_player->SetOrientation(EulerAngles(-97.4f, 33.2f, 0.f));
+
+	scene->SetupStartPosAndOrientation(Vec3(2.8f, 5.6f, 3.5f), EulerAngles(-130.f, 11.2f, 0.f));
+	scene->ResetPlayer(m_player);
 
 	GameObject* cave = scene->CreateGameObject(this, "Cave");
 	cave->InitializeVertsFromFile("Data/Meshes/cave");
-	cave->SetPosition(Vec3(0.f, 0.f, 0.f));
-	cave->SetScale(Vec3(100.0f, 100.0f, 100.0f));
+	cave->SetPosition(Vec3(-0.2f, -6.5f, 4.75f));
+	cave->SetScale(Vec3(20.f, 20.f, 20.f));
 	cave->SetOrientation(EulerAngles(0.f, 0.f, 90.f));
 
 	cave->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene2/cave.png");
+	cave->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene2/cave_n.png");
+	cave->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene2/cave_sge.png");
 
 	cave->SetColor(Rgba8::WHITE);
 
@@ -3202,17 +3676,39 @@ void Game::SetupScene2()
 	platform->SetOrientation(EulerAngles(0.f, 0.f, 90.f));
 
 	platform->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene2/platform.png");
-
+	platform->m_normalTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene2/platform_n.png");
+	platform->m_specGlossEmitTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene2/platform_sge.png");
 	platform->SetColor(Rgba8::WHITE);
 
 
 	Lights& L = scene->GetLights();
-	L.m_sunColor = Vec4(0.9f, 0.95f, 1.0f, 0.5f);
+	L.m_sunColor = Vec4(0.9f, 0.95f, 1.0f, 0.1f);
 	L.m_sunDirection = Vec3(0.3f, -0.6f, -0.7f).GetNormalized();
 	L.m_numLights = 0;
+
+	Light& light = L.m_lightsArray[L.m_numLights++];
+
+	light.m_color = Vec4(
+		170.f / 255.f,
+		120.f / 255.f,
+		253.f / 255.f,
+		1.5f);
+
+	light.m_position = Vec3(0.f, 0.f, 5.4f);
+
+	light.m_direction = Vec3(0.f, 0.f, 0.f);
+
+	light.m_ambience = 0.1f;
+	light.m_innerRadius = 3.0f;
+	light.m_outerRadius = 25.0f;
+
+	light.m_innerDotThreshold = -1.0f;
+	light.m_outerDotThreshold = -2.0f;
+
+
 	Vec3 circleBaseCenter = Vec3(0.f, 0.f, 0.51f);
 	RandomNumberGenerator rng;
-	float layerHeightStep = 0.4f;
+
 
 	struct MagicCircleParticleLayer
 	{
@@ -3228,10 +3724,10 @@ void Game::SetupScene2()
 	};
 
 	MagicCircleParticleLayer circleLayers[] = {
-		{ "Data/Images/Scene2/m1.png", 2.50f, 0.00f, Rgba8(255,255,255,150),  1.0f,  1.0f, 5.8f, 0.9f, 1 },
-		{ "Data/Images/Scene2/m2.png", 3.075f,0.40f, Rgba8(200,170,255,100), -1.2f,  1.0f, 7.7f, 0.85f, 1 },
-		{ "Data/Images/Scene2/m3.png", 1.875f,0.80f, Rgba8(170,200,255,120),  1.5f,  1.0f, 4.6f, 0.8f, 1 },
-		{ "Data/Images/Scene2/m4.png", 2.175f,1.20f, Rgba8(200,120,255, 80), -0.4f,  1.0f, 6.65f, 0.9f, 1 },
+		{ "Data/Images/Scene2/m1.png", 2.50f, 0.00f, Rgba8(255,255,255,250),  1.0f,  1.0f, 5.8f, 0.9f, 1 },
+		{ "Data/Images/Scene2/m2.png", 3.075f,1.00f, Rgba8(200,170,255,200), -1.2f,  1.0f, 7.7f, 0.85f, 1 },
+		{ "Data/Images/Scene2/m3.png", 1.875f,2.00f, Rgba8(170,200,255,220),  1.5f,  1.0f, 4.6f, 0.8f, 1 },
+		{ "Data/Images/Scene2/m4.png", 2.175f,3.00f, Rgba8(200,120,255,180), -0.4f,  1.0f, 6.65f, 0.9f, 1 },
 	};
 
 	int layerCount = (int)(sizeof(circleLayers) / sizeof(circleLayers[0]));
@@ -3385,18 +3881,19 @@ void Game::SetupScene2()
 		cfg.m_owner = g_theParticleSystem;
 		cfg.name = "SingleRisingRing";
 		cfg.blendMode = BlendMode::ALPHA;
-		cfg.mainStage.texPath = "Data/Images/Scene2/m3.png";
+		cfg.mainStage.texPath = "Data/Images/Scene2/m5.png";
 		Vec3 startPos = circleBaseCenter + Vec3(0.f, 0.f, 0.15f);
 		cfg.position = startPos;
 		cfg.spawnArea = Vec3(0.02f, 0.02f, 0.02f);
 		float riseSpeed = 0.25f;
-		float lifeTime = 5.0f;
+		float lifeTime = 10.0f;
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, riseSpeed);
 		cfg.mainStage.velocityVariance = Vec3(0.0f, 0.0f, 0.0f);
+		cfg.mainStage.baseAngularVelocity = 1.f;
 		cfg.mainStage.startSize = 3.0f;
-		cfg.mainStage.endSize = 5.0f;
-		cfg.mainStage.startColor = Rgba8(200, 170, 255, 200);
-		cfg.mainStage.endColor = Rgba8(200, 170, 255, 0);
+		cfg.mainStage.endSize = 10.0f;
+		cfg.mainStage.startColor = Rgba8(200, 170, 255, 100);
+		cfg.mainStage.endColor = Rgba8(200, 170, 255, 50);
 		cfg.mainStage.lifetime = lifeTime;
 		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startEmissive = 1.f;
@@ -3419,18 +3916,18 @@ void Game::SetupScene2()
 		cfg.mainStage.texPath =
 			"Data/Images/Scene2/msmoke.png";
 		cfg.position = circleBaseCenter - Vec3(0.f, 0.f, 0.1f);
-		cfg.spawnArea = Vec3(3.8f, 3.8f, 0.3f);
+		cfg.spawnArea = Vec3(6.8f, 6.8f, 0.6f);
 		cfg.mainStage.lifetime = 4.0f;
 		cfg.mainStage.lifetimeVariance = 1.5f;
 		cfg.mainStage.startSize = 0.55f;
 		cfg.mainStage.endSize = 1.35f;
-		cfg.mainStage.startColor = Rgba8(180, 150, 255, 80);
+		cfg.mainStage.startColor = Rgba8(180, 150, 255, 20);
 		cfg.mainStage.endColor = Rgba8(180, 150, 255, 0);
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.05f);
 		cfg.mainStage.velocityVariance = Vec3(0.04f, 0.04f, 0.04f);
 		cfg.mainStage.billboardType = 0u;
-		cfg.spawnRate = 6.0f;
-		cfg.maxParticles = 48;
+		cfg.spawnRate = 60.0f;
+		cfg.maxParticles = 480;
 		cfg.isLooping = true;
 		cfg.enabled = true;
 		cfg.duration = -1.0f;

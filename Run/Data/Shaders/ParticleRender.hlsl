@@ -138,7 +138,8 @@ static void EvaluateLighting(
         totalSpecularLight += specularLight;
     }
 
-    outDiffuse = saturate(totalDiffuseLight);
+    float3 ambientFloor = float3(0.04, 0.04, 0.04);
+    outDiffuse = saturate(totalDiffuseLight + ambientFloor);
     outSpecular = totalSpecularLight * specularity;
 }
 
@@ -436,4 +437,9 @@ float4 PixelMain(UniversalVSOutput input) : SV_Target
 
         return float4(finalColor, baseColor.a);
     }
+}
+
+[numthreads(1, 1, 1)]
+void CSMain(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
 }
