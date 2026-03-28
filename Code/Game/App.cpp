@@ -99,7 +99,7 @@ void App::Startup()
 	g_theAudio->Startup();
 	g_theDevConsole->Startup();
 	g_theFont = g_theRenderer->CreateOrGetBitmapFont("Data/Fonts/SquirrelFixedFont");
-	g_theFontPro = g_theRenderer->CreateOrGetBitmapFontPro("Data/Fonts/LeepFont");
+	g_theFontPro = g_theRenderer->CreateOrGetBitmapFontPro("LeepFont");
 	DebugRenderSystemStartup(debugRenderConfig);
 	InitImGui(g_theWindow->GetHWND(), g_theRenderer->GetDevice(), g_theRenderer->GetDeviceContext());
 

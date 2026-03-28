@@ -188,87 +188,6 @@ void Game::UpdateInput(float deltaSeconds)
 		g_theApp->ResetGame();
 	}
 
-	if (g_theInput->WasKeyJustPressed(KEYCODE_1))
-	{
-		Vec3 lineStart = m_player->GetPosition();
-		Vec3 lineEnd = lineStart + m_player->GetFwdNormal() * 20.f;
-		DebugAddWorldLine(lineStart, lineEnd, 0.05f, 10.f, Rgba8::YELLOW, Rgba8::YELLOW, DebugRenderMode::X_RAY);
-	}
-
-	if (g_theInput->IsKeyDown(KEYCODE_2))
-	{
-		Vec3 playerPos = m_player->GetPosition();
-		Vec3 spawnPos = Vec3(playerPos.x, playerPos.y, 0.f);
-
-		Rgba8 sphereColor = Rgba8(150, 75, 0, 255);
-		DebugAddWorldPoint(spawnPos, 0.5f, 60.f, sphereColor, sphereColor, DebugRenderMode::USE_DEPTH);
-	}
-
-	if (g_theInput->WasKeyJustPressed(KEYCODE_3))
-	{
-		Vec3 playerPos = m_player->GetPosition();
-		Vec3 spherePos = Vec3(playerPos.x + 2.f, playerPos.y, playerPos.z);
-
-		
-
-		DebugAddWorldWireSphere(playerPos, 1.f, 5.f, Rgba8::GREEN, Rgba8::RED, DebugRenderMode::USE_DEPTH);
-	}
-
-	if (g_theInput->WasKeyJustPressed(KEYCODE_4))
-	{
-		Vec3 playerPos = m_player->GetPosition();
-		EulerAngles playerOrientation = m_player->GetOrientation();
-
-		Mat44 playerTransform = playerOrientation.GetAsMatrix_IFwd_JLeft_KUp();
-		playerTransform.SetTranslation3D(playerPos); 
-
-		DebugAddWorldBasis(playerTransform, -1.f, DebugRenderMode::USE_DEPTH);
-	}
-
-	if (g_theInput->WasKeyJustPressed(KEYCODE_5))
-	{
-		Vec3 playerPos = m_player->GetPosition();
-		EulerAngles playerOrientation = m_player->GetOrientation();
-
-		Mat44 playerTransform = playerOrientation.GetAsMatrix_IFwd_JLeft_KUp();
-		playerTransform.SetTranslation3D(playerPos);
-
-		Mat44 cameraMatrix = m_player->GetCamera().GetCameraToWorldTransform();
-
-		Vec3 forwardOffset = playerTransform.GetIBasis3D() * 1.5f;
-		Vec3 billboardPos = playerPos + forwardOffset;
-
-
-
-		std::string text = Stringf("Position: %.1f, %.1f, %.1f Orientation: %.1f, %.1f, %.1f",
-			playerPos.x, playerPos.y, playerPos.z,
-			playerOrientation.m_yawDegrees, playerOrientation.m_pitchDegrees, playerOrientation.m_rollDegrees);
-
-		DebugAddWorldBillboardText(text, billboardPos, 0.125f, Vec2(0.5f, 0.5f), 10.f, Rgba8::WHITE, Rgba8::RED, DebugRenderMode::USE_DEPTH, BillboardType::FULL_OPPOSING);
-	}
-
-
-	if (g_theInput->WasKeyJustPressed(KEYCODE_6))
-	{
-		Vec3 playerPos = m_player->GetPosition();
-		Vec3 playerUp = Vec3(0.0f, 0.0f, 1.0f);
-		Vec3 playerDown = -playerUp;
-
-		Vec3 cylinderTop = playerPos + (playerUp * 0.5f);
-		Vec3 cylinderBot = playerPos + (playerDown * 0.5f);
-		
-		DebugAddWorldWireCylinder(cylinderBot, cylinderTop, 0.5f, 10.f, Rgba8::WHITE, Rgba8::RED, DebugRenderMode::USE_DEPTH);
-	}
-
-	if (g_theInput->WasKeyJustPressed(KEYCODE_7))
-	{
-		std::string text;
-		EulerAngles orientation = m_player->GetOrientation();
-		text = Stringf("Camera Orientation: %.2f, %.2f, %.2f", orientation.m_yawDegrees, orientation.m_pitchDegrees, orientation.m_rollDegrees);
-
-		DebugAddMessage(text, 5.f, Rgba8::WHITE, Rgba8::WHITE);
-	}
-
 	if (g_theInput->WasKeyJustPressed('H'))
 	{
 		GetCurrentScene()->ResetPlayer(m_player);
@@ -934,8 +853,7 @@ bool Game::Event_KeysAndFuncs(EventArgs& args)
 	UNUSED(args);
 
 	g_theDevConsole->AddLine(DevConsole::INFO_MAJOR, "Controls");
-
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Mouse  - Aim");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "[RMB]  - Hold to Aim");
 	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "W / A  - Move");
 	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "S / D  - Strafe");
 	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Q / E  - Roll");
@@ -947,13 +865,6 @@ bool Game::Event_KeysAndFuncs(EventArgs& args)
 	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "T      - Slow Motion Mode");
 	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "~      - Open / Close DevConsole");
 	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Escape - Exit Game");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "1      - Spawn a Forward Line");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "2      - Spawn a Sphere Below At Z = 0");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "3      - Spawn a Wireframe Sphere");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "4      - Spawn a Player World Basis");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "5      - Spawn a Full Opposing Billboard Text of Player Pos and Ori");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "6      - Spawn a Wireframe Cylinder");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "7      - Add a Screen Message with Current Camera Orientation");
 
 	return true;
 }
