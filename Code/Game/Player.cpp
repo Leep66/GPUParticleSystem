@@ -19,8 +19,8 @@ Player::Player(Game* owner)
 
 	float fov = 60.f;
 	float aspect = g_theWindow->GetAspect();
-	float zNear = 0.1f;
-	float zFar = 1000.f;
+	float zNear = 0.01f;
+	float zFar = 200.f;
 	m_camera.SetMode(Camera::eMode_Perspective);
 	m_camera.SetPerspectiveView(aspect, fov, zNear, zFar);
 

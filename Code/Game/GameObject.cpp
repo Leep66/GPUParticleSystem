@@ -63,24 +63,13 @@ void GameObject::Render() const
 	g_theRenderer->SetModelConstants(GetModelToWorldTransform(), m_color);
 	g_theRenderer->SetDepthMode(DepthMode::READ_WRITE_LESS_EQUAL);
 	g_theRenderer->SetRasterizerMode(RasterizerMode::SOLID_CULL_BACK);
-	if (m_color.a < 255)
-	{
-		g_theRenderer->SetBlendMode(BlendMode::ALPHA);
-
-	}
-	else
-	{
-		g_theRenderer->SetBlendMode(BlendMode::ALPHA);
-	}
+	g_theRenderer->SetBlendMode(BlendMode::Blend_OPAQUE);
 	g_theRenderer->SetStatesIfChanged();
 
 	g_theRenderer->CopyCPUToGPU(m_vbo, m_ibo, m_vertexes.data(), m_indices.data(), (int)m_vertexes.size(), (int)m_indices.size());
-
 	g_theRenderer->DrawIndexedVertexBuffer(m_vbo, m_ibo, (int)m_indices.size());
 
 	g_theRenderer->SetModelConstants(Mat44(), Rgba8::WHITE);
-
-
 }
 
 void GameObject::SetScale(const Vec3& scale)

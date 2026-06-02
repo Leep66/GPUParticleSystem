@@ -26,6 +26,7 @@
 #include "Engine/ParticleSystem/ParticleForce.hpp"
 #include "Game/GameObject.hpp"
 #include "Engine/Renderer/StaticMeshDefinition.hpp"
+#include "Engine/Renderer/BitmapFontPro.hpp"
 #include <cmath>
 #include <sstream>
 #include <unordered_map>
@@ -39,6 +40,7 @@ extern AudioSystem* g_theAudio;
 extern DevConsole* g_theDevConsole;
 extern EventSystem* g_theEventSystem;
 extern BitmapFont* g_theFont;
+extern BitmapFontPro* g_theFontPro;
 extern Window* g_theWindow;
 
 ParticleSystem* g_theParticleSystem = nullptr;
@@ -87,8 +89,17 @@ void Game::Startup()
 	sphere1->m_angularVelocity.m_yawDegrees = 45.f;
 	sphere1->m_texture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/TestUV.png");*/
 
+	
+
 	m_screenCamera.SetMode(Camera::eMode_Orthographic);
-	m_screenCamera.SetOrthographicView(Vec2(0.f, 0.f), Vec2(1600.f, 800.f));
+
+	screenWidth = (float)g_theWindow->GetClientDimensions().x;
+	screenHeight = (float)g_theWindow->GetClientDimensions().y;
+
+	m_screenCamera.SetOrthographicView(
+		Vec2(0.f, 0.f),
+		Vec2(screenWidth, screenHeight)
+	);
 
 	//CreateAndAddVertsForGrid(m_gridVerts, Vec3(0.f, 0.f, 0.f), Vec2(100.f, 100.f), 100, 100);
 
@@ -113,6 +124,8 @@ void Game::Startup()
 		RegisterScenes();
 	}
 
+
+
 }
 
 void Game::Update()
@@ -120,6 +133,37 @@ void Game::Update()
 	float deltaSeconds = m_clock->GetDeltaSeconds();
 
 	UpdateCameras(deltaSeconds);
+
+	float time = m_clock->GetTotalSeconds();
+
+	PerFrameConstants debugData;
+	debugData.Time = time;
+	debugData.DebugInt = 0;
+	debugData.DebugFloat = 0.f;
+
+	if (g_theInput->IsKeyDown('1'))
+	{
+		debugData.DebugInt = 1;
+	}
+	else if (g_theInput->IsKeyDown('2'))
+	{
+		debugData.DebugInt = 2;
+	}
+	else if (g_theInput->IsKeyDown('3'))
+	{
+		debugData.DebugInt = 3;
+	}
+	else if (g_theInput->IsKeyDown('4'))
+	{
+		debugData.DebugInt = 4;
+	}
+	else if (g_theInput->IsKeyDown('5'))
+	{
+		debugData.DebugInt = 5;
+	}
+
+
+	g_theRenderer->SetPerFrameConstants(debugData);
 	
 	if (g_theInput->WasKeyJustPressed('P'))
 	{
@@ -134,6 +178,10 @@ void Game::Update()
 	if (g_theInput->IsKeyDown('T'))
 	{
 		m_clock->SetTimeScale(0.1f);
+	}
+	else if (g_theInput->IsKeyDown('Y'))
+	{
+		m_clock->SetTimeScale(10.f);
 	}
 	else
 	{
@@ -193,14 +241,14 @@ void Game::UpdateInput(float deltaSeconds)
 		GetCurrentScene()->ResetPlayer(m_player);
 	}
 
+	bool imguiMode = true;
+
 	if (g_theInput->IsKeyDown(KEYCODE_RIGHT_MOUSE))
 	{
-		m_imguiCursor = false;
+		imguiMode = false;
 	}
-	else
-	{
-		m_imguiCursor = true;
-	}
+	m_imguiCursor = imguiMode;
+
 
 	if (g_theInput->WasKeyJustPressed(KEYCODE_F1))
 	{
@@ -233,25 +281,27 @@ void Game::Render() const
 		g_theRenderer->BindTexture(m_skyTex);
 		g_theRenderer->SetRasterizerMode(RasterizerMode::SOLID_CULL_NONE);
 		g_theRenderer->SetDepthMode(DepthMode::DISABLED);
-		g_theRenderer->DrawVertexArray(skyVerts);
 
+		g_theRenderer->DrawVertexArray(skyVerts);
+		g_theRenderer->BindShader(m_shader);
+		
+
+		m_sceneManager.Render();
+
+
+		if (g_theParticleSystem) g_theParticleSystem->Render();
 
 		g_theRenderer->SetDepthMode(DepthMode::READ_WRITE_LESS_EQUAL);
-		g_theRenderer->BeginOpaquePass();
+
+		g_theRenderer->BindShader(g_theRenderer->GetShader("Default"));
 		Lights lights = GetCurrentScene()->GetLights();
 
 		for (int i = 0; i < lights.m_numLights; ++i)
 		{
 			RenderLightSource(lights.m_lightsArray[i]);
 		}
-		g_theRenderer->BindShader(m_shader);
+
 		g_theRenderer->SetLightConstants(lights);
-		m_sceneManager.Render();
-
-
-		if (g_theParticleSystem) g_theParticleSystem->Render();
-
-		g_theRenderer->EndOpaquePass();
 
 		DebugRenderWorld(m_player->GetCamera());
 		DebugRenderParticleForces();
@@ -308,10 +358,39 @@ void Game::UpdateGame(float deltaSeconds)
 
 	float time = m_clock->GetTotalSeconds();
 	float FPS = 1.f / m_clock->GetDeltaSeconds();
-	std::string timeText = Stringf("Time: %.2f FPS: %.0f ", time, FPS);
+	float frameTimeMs = m_clock->GetDeltaSeconds() * 1000.f;
 
-	AABB2 timeBox(1000.f, 750.f, 1600.f, 800.f);
-	DebugAddScreenText(timeText, timeBox, 20.f, Vec2(1.f, 0.5f), -1.f);
+
+	float boxWidth = 180.f;
+	float boxHeight = 40.f;
+
+	float startX = screenWidth - 3.f * boxWidth;
+	float yMin = screenHeight - boxHeight;
+	float yMax = screenHeight;
+
+	// Time
+	{
+		std::string text = Stringf("Time: %.2f", time);
+		AABB2 box(startX + 0 * boxWidth, yMin,
+			startX + 1 * boxWidth, yMax);
+		DebugAddScreenText(text, box, 20.f, Vec2(0.0f, 0.5f), -1.f, Rgba8::CYAN);
+	}
+
+	// FPS
+	{
+		std::string text = Stringf("FPS: %.0f", FPS);
+		AABB2 box(startX + 1 * boxWidth, yMin,
+			startX + 2 * boxWidth, yMax);
+		DebugAddScreenText(text, box, 20.f, Vec2(0.0f, 0.5f), -1.f, Rgba8::CYAN);
+	}
+
+	// Frame Time
+	{
+		std::string text = Stringf("Frame: %.2f", frameTimeMs);
+		AABB2 box(startX + 2 * boxWidth, yMin,
+			startX + 3 * boxWidth, yMax);
+		DebugAddScreenText(text, box, 20.f, Vec2(0.0f, 0.5f), -1.f, Rgba8::CYAN);
+	}
 
 
 	UpdateInput(deltaSeconds);
@@ -330,7 +409,7 @@ void Game::UpdateGame(float deltaSeconds)
 		}
 	}
 
-	if(GetCurrentScene()->GetName() == "Scene 4")
+	if (GetCurrentScene()->GetName() == "Scene 4")
 	{
 		m_tornadoTime += deltaSeconds;
 
@@ -345,16 +424,47 @@ void Game::UpdateGame(float deltaSeconds)
 			em->SetPosition(m_tornadoBasePos);
 		}
 
-		for (int idx : m_tornadoForceIndices)
+		for (int i = 0; i < (int)m_tornadoForceIndices.size(); i++)
 		{
-			ParticleForce f = *g_theParticleSystem->GetForce(idx);
+			int idx = m_tornadoForceIndices[i];
 
-			f.m_position[0] = m_tornadoBasePos.x;
-			f.m_position[1] = m_tornadoBasePos.y;
+			ParticleForce* fPtr = g_theParticleSystem->GetForce(idx);
+			if (!fPtr) continue;
+
+			ParticleForce f = *fPtr;
+
+			float t = m_tornadoTime;
+			float seed = (float)i * 37.0f;
+
+			float noiseX = Compute2dPerlinNoise(
+				t + seed,
+				0.0f,
+				0.8f,
+				3,
+				0.5f,
+				2.0f,
+				true,
+				1234u + i
+			);
+
+			float noiseY = Compute2dPerlinNoise(
+				0.0f,
+				t + seed,
+				0.8f,
+				3,
+				0.5f,
+				2.0f,
+				true,
+				5678u + i
+			);
+
+			float strength = 0.8f;
+
+			f.m_position[0] = m_tornadoBasePos.x + noiseX * strength;
+			f.m_position[1] = m_tornadoBasePos.y + noiseY * strength;
 
 			g_theParticleSystem->SetForce(idx, f);
 		}
-
 	}
 }
 
@@ -420,7 +530,7 @@ void Game::RenderDevConsole() const
 	g_theRenderer->BeginCamera(m_screenCamera);
 	if (g_theDevConsole)
 	{
-		g_theDevConsole->Render(AABB2(0, 0, 1600, 800));
+		g_theDevConsole->Render(AABB2(0, 0, screenWidth, screenHeight));
 		
 	}
 	g_theRenderer->EndCamera(m_screenCamera);
@@ -756,7 +866,6 @@ void Game::ShowParticleStatsPanel()
 
 void Game::UpdateAttractMode(float deltaSeconds)
 {
-	UNUSED(deltaSeconds);
 
 	if (g_theInput->WasKeyJustPressed(' ') || g_theInput->GetController(0).WasButtonJustPressed(XBOX_BUTTON_A) || g_theInput->GetController(0).WasButtonJustPressed(XBOX_BUTTON_START))
 	{
@@ -811,6 +920,23 @@ void Game::RenderAttractMode() const
 	g_theRenderer->ClearScreen(Rgba8(0, 127, 127, 255));
 	g_theRenderer->BeginCamera(m_screenCamera);
 
+	std::vector<Vertex_PCU> backgroundVerts;
+	Texture* backTex = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Background.png");
+	AddVertsForAABB2D(backgroundVerts, AABB2(Vec2(0.f, 0.f), Vec2(screenWidth, screenHeight)), Rgba8::WHITE);
+	g_theRenderer->BindTexture(backTex);
+	g_theRenderer->DrawVertexArray(backgroundVerts);
+	g_theRenderer->BindTexture(nullptr);
+
+	std::string title = "GPU-BASED PARTICLE SYSTEM";
+
+	g_theFontPro->DrawTextInBox2D_Font(
+		title,
+		AABB2(0.f, screenHeight - 200.f, screenWidth, screenHeight - 100.f),
+		120.f,
+		Rgba8::WHITE,
+		Vec2(0.5f, 0.5f));
+	
+
 	RenderAttractRing();
 
 
@@ -819,9 +945,14 @@ void Game::RenderAttractMode() const
 
 void Game::RenderAttractRing() const
 {
-	DebugDrawRing(Vec2(800.f, 400.f), m_attractRingRadius, m_attractRingThickness, Rgba8(255, 127, 0, 255));
+	std::vector<Vertex_PCU> ringVerts;
+	AddVertsForRing2D(ringVerts, Vec2(screenWidth / 2.f, screenHeight / 2.f), m_attractRingRadius, m_attractRingThickness, Rgba8(255, 127, 0, 255));
+
 	g_theRenderer->BindTexture(nullptr);
+	g_theRenderer->BindShader(nullptr);
+	g_theRenderer->DrawVertexArray(ringVerts);
 }
+
 void Game::Shutdown()
 {
 
@@ -853,18 +984,18 @@ bool Game::Event_KeysAndFuncs(EventArgs& args)
 	UNUSED(args);
 
 	g_theDevConsole->AddLine(DevConsole::INFO_MAJOR, "Controls");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "[RMB]  - Hold to Aim");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "W / A  - Move");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "S / D  - Strafe");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Q / E  - Roll");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Z / C  - Elevate");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Shift  - Sprint");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "H      - Set Camera to Origin");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "P      - Pause Game");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "O      - Step One Frame");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "T      - Slow Motion Mode");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "~      - Open / Close DevConsole");
-	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Escape - Exit Game");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "[RMB] - Hold to Aim");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "W / A - Move");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "S / D - Strafe");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Q / E - Elevate");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Shift - Sprint");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "H     - Set Camera to Origin");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "P     - Pause Game");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "O     - Step One Frame");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "T     - Slow Motion Mode");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Y     - Fast Motion Mode");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "~     - Open / Close DevConsole");
+	g_theDevConsole->AddLine(DevConsole::INFO_MINOR, "Esc   - Exit Game");
 
 	return true;
 }
@@ -1127,7 +1258,7 @@ void Game::ShowEmitterInspectorPanel()
 		if (emitters[i] == m_uiSelectedEmitter)
 		{
 			found = true;
-			m_uiEmitterIndex = i; 
+			m_uiEmitterIndex = i;
 			break;
 		}
 	}
@@ -1162,19 +1293,24 @@ void Game::ShowEmitterInspectorPanel()
 	{
 		char nameBuf[128] = {};
 		strncpy_s(nameBuf, cfg.name.c_str(), sizeof(nameBuf) - 1);
-		if (ImGui::InputText("Name", nameBuf, IM_ARRAYSIZE(nameBuf))) {
-			cfg.name = nameBuf; dirty = true;
+		if (ImGui::InputText("Name", nameBuf, IM_ARRAYSIZE(nameBuf)))
+		{
+			cfg.name = nameBuf;
+			dirty = true;
 		}
 	}
 
 	{
 		char pathBuf[256] = {};
 		strncpy_s(pathBuf, cfg.mainStage.texPath.c_str(), sizeof(pathBuf) - 1);
-		if (ImGui::InputText("Texture Path", pathBuf, IM_ARRAYSIZE(pathBuf))) {
-			cfg.mainStage.texPath = pathBuf; dirty = true;
+		if (ImGui::InputText("Texture Path", pathBuf, IM_ARRAYSIZE(pathBuf)))
+		{
+			cfg.mainStage.texPath = pathBuf;
+			dirty = true;
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Reload Texture")) {
+		if (ImGui::Button("Reload Texture"))
+		{
 			em->UpdateConfig(cfg);
 		}
 	}
@@ -1196,10 +1332,59 @@ void Game::ShowEmitterInspectorPanel()
 	dirty |= ImGui::DragFloat("End Size", &cfg.mainStage.endSize, 0.005f, 0.f, 1000.f);
 	dirty |= ImGui::DragFloat("Duration", &cfg.duration, 0.01f, 0.f, 1e6f);
 
-	int sc[4] = { cfg.mainStage.startColor.r, cfg.mainStage.startColor.g, cfg.mainStage.startColor.b, cfg.mainStage.startColor.a };
-	int ec[4] = { cfg.mainStage.endColor.r, cfg.mainStage.endColor.g, cfg.mainStage.endColor.b, cfg.mainStage.endColor.a };
-	if (ImGui::SliderInt4("Start Color", sc, 0, 255)) { cfg.mainStage.startColor = Rgba8((uint8_t)sc[0], (uint8_t)sc[1], (uint8_t)sc[2], (uint8_t)sc[3]); dirty = true; }
-	if (ImGui::SliderInt4("End Color", ec, 0, 255)) { cfg.mainStage.endColor = Rgba8((uint8_t)ec[0], (uint8_t)ec[1], (uint8_t)ec[2], (uint8_t)ec[3]); dirty = true; }
+	dirty |= ImGui::DragFloat("Start Soft", &cfg.mainStage.startSoftFactor, 0.01f, 0.f, 10.f);
+	dirty |= ImGui::DragFloat("End Soft", &cfg.mainStage.endSoftFactor, 0.01f, 0.f, 10.f);
+
+	dirty |= ImGui::DragFloat("Start Emissive", &cfg.mainStage.startEmissive, 0.01f, 0.f, 10.f);
+	dirty |= ImGui::DragFloat("End Emissive", &cfg.mainStage.endEmissive, 0.01f, 0.f, 10.f);
+
+	dirty |= ImGui::DragFloat("Base Angular Vel", &cfg.mainStage.baseAngularVelocity, 0.01f, -100.f, 100.f);
+	dirty |= ImGui::DragFloat("Angular Variance", &cfg.mainStage.angularVariance, 0.01f, 0.f, 100.f);
+
+	dirty |= ImGui::DragFloat("Spawn Probability", &cfg.mainStage.prob, 0.01f, 0.f, 1.f);
+
+	float sc[4] = {
+		cfg.mainStage.startColor.r / 255.f,
+		cfg.mainStage.startColor.g / 255.f,
+		cfg.mainStage.startColor.b / 255.f,
+		cfg.mainStage.startColor.a / 255.f
+	};
+	float ec[4] = {
+		cfg.mainStage.endColor.r / 255.f,
+		cfg.mainStage.endColor.g / 255.f,
+		cfg.mainStage.endColor.b / 255.f,
+		cfg.mainStage.endColor.a / 255.f
+	};
+
+	if (ImGui::ColorEdit4("Start Color", sc))
+	{
+		cfg.mainStage.startColor = Rgba8(
+			(uint8_t)(sc[0] * 255.f),
+			(uint8_t)(sc[1] * 255.f),
+			(uint8_t)(sc[2] * 255.f),
+			(uint8_t)(sc[3] * 255.f)
+		);
+		dirty = true;
+	}
+
+	if (ImGui::ColorEdit4("End Color", ec))
+	{
+		cfg.mainStage.endColor = Rgba8(
+			(uint8_t)(ec[0] * 255.f),
+			(uint8_t)(ec[1] * 255.f),
+			(uint8_t)(ec[2] * 255.f),
+			(uint8_t)(ec[3] * 255.f)
+		);
+		dirty = true;
+	}
+
+	int billboard = (int)cfg.mainStage.billboardType;
+	const char* types[] = { "Screen Facing", "World Aligned" };
+	if (ImGui::Combo("Billboard Type", &billboard, types, IM_ARRAYSIZE(types)))
+	{
+		cfg.mainStage.billboardType = (uint32_t)billboard;
+		dirty = true;
+	}
 
 	if (dirty) em->UpdateConfig(cfg);
 
@@ -1748,8 +1933,6 @@ void Game::ShowForcesPanel()
 					f.m_radialStrength = 35.0f;
 					f.m_bottomRadius = 1.8f;
 					f.m_topRadius = 9.0f;
-					f.m_radialFalloffPow = 1.8f;
-					f.m_heightFalloffPow = 5.0f;
 					f.m_flags = FLOW_SWIRL_ENABLE | FLOW_RADIAL_ENABLE | FLOW_AXIAL_ENABLE;
 					break;
 				}
@@ -1857,10 +2040,6 @@ void Game::ShowForcesPanel()
 			if (ImGui::DragFloat("Swirl Strength", &f.m_strength, 0.1f, -200.f, 200.f)) changed = true;
 			if (ImGui::DragFloat("Axial Strength (along axis)", &f.m_axialStrength, 0.1f, -200.f, 200.f)) changed = true;
 			if (ImGui::DragFloat("Radial Strength", &f.m_radialStrength, 0.1f, -200.f, 200.f)) changed = true;
-
-			ImGui::SeparatorText("Falloff");
-			if (ImGui::DragFloat("Radial Falloff Pow", &f.m_radialFalloffPow, 0.1f, 0.f, 20.f, "%.1f")) changed = true;
-			if (ImGui::DragFloat("Height Falloff Pow", &f.m_heightFalloffPow, 0.1f, 0.f, 20.f, "%.1f")) changed = true;
 		}
 
 		if (changed) {
@@ -1885,7 +2064,8 @@ void Game::ShowSceneSelectionPanel()
 		{"Rune Nexus", "Scene 2"},
 		{"Pulse Sector-7", "Scene 3"},
 		{"Eye of the Dunes", "Scene 4"},
-		{"Bloomfall Sky", "Scene 5"}
+		{"Bloomfall Sky", "Scene 5"},
+		{"Stress Testing", "Scene 6"},
 	};
 
 	std::vector<int> validIndices;
@@ -1989,6 +2169,28 @@ void Game::ShowSceneSelectionPanel()
 			s_sceneDisplay[validIndices[m_uiSceneIndex]].second,
 			fade);
 	}
+
+	ImGui::Separator();
+	
+
+	static std::vector<std::string> s_sceneDescriptions =
+	{
+		"This scene demonstrates layered effects using a sub-emitter system, where fire generates secondary smoke while snow particles are simulated simultaneously, showcasing multi-emitter interaction.",
+
+		"This scene presents structured particle patterns achieved through precise emitter control, resulting in stable, repeatable motion and clearly defined spatial behavior.",
+
+		"This is a high-density rain simulation, demonstrating efficient large-scale particle updates running in parallel on the GPU with continuous emission.",
+
+		"In this scene, a flow field combines radial, tangential and axial forces to generate tornado-like motion, illustrating how multiple force components interact.",
+
+		"This scene uses directional forces to produce smooth and coherent particle motion, demonstrating controlled and predictable behavior.",
+
+		"Finally, this stress test demonstrates scalability with millions of particles, highlighting bandwidth and rendering as the primary performance bottlenecks."
+	};
+
+	ImGui::Spacing();
+	ImGui::TextWrapped("%s",
+		s_sceneDescriptions[validIndices[m_uiSceneIndex]].c_str());
 }
 
 void Game::DebugRender() const
@@ -2076,25 +2278,65 @@ void Game::DebugRenderParticleForces() const
 			Vec3 top = base + axis * height;
 
 			float br = f.m_bottomRadius;
-			if (br > 0.f)
-			{
-				AddVertsForUVSphereZWireframe3D(verts, base, br, 16, 0.01f, fColor);
-			}
-
 			float tr = f.m_topRadius;
-			if (tr > 0.f)
-			{
-				AddVertsForUVSphereZWireframe3D(verts, top, tr, 16, 0.01f, fColor);
-			}
 
-			if (br > 0.f || tr > 0.f)
+			AddVertsForLineSegment3D(verts, base, top, 0.03f, Rgba8(0, 255, 0, 255));
+
+			AddVertsForCylinderWireframe3D(
+				verts,
+				base,
+				top,
+				br,
+				tr,
+				fColor,
+				16
+			);
+
+			Vec3 ref = (fabsf(axis.z) < 0.99f) ? Vec3(0, 0, 1) : Vec3(1, 0, 0);
+			Vec3 right = CrossProduct3D(axis, ref).GetNormalized();
+			Vec3 forward = CrossProduct3D(right, axis).GetNormalized();
+
+			const int stacks = 3;
+			const int slices = 6;
+
+			for (int hStep = 0; hStep <= stacks; hStep++)
 			{
-				float midT = 0.5f;
-				Vec3 mid = base + axis * (height * midT);
-				float midRadius = br + (tr - br) * midT;
-				if (midRadius > 0.f)
+				float hT = (float)hStep / (float)stacks;
+				Vec3 center = base + axis * (height * hT);
+				float radius = br + (tr - br) * hT;
+
+				for (int i = 0; i < slices; i++)
 				{
-					AddVertsForUVSphereZWireframe3D(verts, mid, midRadius, 16, 0.01f, fColor);
+					float angle = (float)i / (float)slices * 360.0f;
+					Vec2 dir2 = Vec2::MakeFromPolarDegrees(angle);
+
+					Vec3 radial = right * dir2.x + forward * dir2.y;
+					Vec3 pos = center + radial * radius;
+
+					Vec3 n = radial.GetNormalized();
+					Vec3 tangential = CrossProduct3D(axis, n);
+
+					float scale = 0.12f;
+					float arrowRadius = 0.1f;
+
+					if ((f.m_flags & FLOW_RADIAL_ENABLE) != 0u)
+					{
+						Vec3 dir = ((f.m_flags & FLOW_RADIAL_OUTWARD) != 0u) ? n : -n;
+						Vec3 end = pos + dir * f.m_radialStrength * scale;
+						AddVertsForArrow3D(verts, pos, end, arrowRadius, 0.7f, Rgba8(255, 0, 0, 255));
+					}
+
+					if ((f.m_flags & FLOW_SWIRL_ENABLE) != 0u)
+					{
+						Vec3 end = pos + tangential * f.m_strength * scale;
+						AddVertsForArrow3D(verts, pos, end, arrowRadius, 0.7f, Rgba8(0, 0, 255, 255));
+					}
+
+					if ((f.m_flags & FLOW_AXIAL_ENABLE) != 0u)
+					{
+						Vec3 end = pos + axis * f.m_axialStrength * scale;
+						AddVertsForArrow3D(verts, pos, end, arrowRadius, 0.7f, Rgba8(0, 255, 0, 255));
+					}
 				}
 			}
 		}
@@ -2152,6 +2394,11 @@ void Game::SetupSceneContent()
 	else if (sceneName == "Scene 5")
 	{
 		SetupScene5();
+	}
+	else if (sceneName == "Scene 6")
+	{
+		SetupScene6();
+
 	}
 }
 
@@ -2427,8 +2674,8 @@ void Game::SetupScene1()
 		cfg.mainStage.startSize = 0.3f;
 		cfg.mainStage.endSize = 0.08f;
 
-		cfg.spawnRate = 300000.0f;
-		cfg.maxParticles = 2000000;
+		cfg.spawnRate = 500000.0f;
+		cfg.maxParticles = 5000000;
 
 		cfg.isLooping = true;
 		cfg.enabled = true;
@@ -2919,8 +3166,8 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.04f);
 		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.50f);
 		cfg.mainStage.lifetime = 5.5f;
-		cfg.mainStage.lifetimeVariance = 3.0f;
-		cfg.mainStage.startColor = Rgba8(255, 220, 200, 255); 
+		cfg.mainStage.lifetimeVariance = 0.0f;
+		cfg.mainStage.startColor = Rgba8(180, 160, 140, 255); 
 		cfg.mainStage.endColor = Rgba8(220, 200, 160, 50);
 		cfg.mainStage.startSize = 0.05f;
 		cfg.mainStage.endSize = 1.2f;
@@ -2947,7 +3194,7 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.04f);
 		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.50f);
 		cfg.mainStage.lifetime = 5.5f;
-		cfg.mainStage.lifetimeVariance = 3.0f;
+		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startColor = Rgba8(100, 60, 40, 255); 
 		cfg.mainStage.endColor = Rgba8(220, 200, 180, 30);
 		cfg.mainStage.startSize = 0.02f;
@@ -2975,7 +3222,7 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.04f);
 		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.50f); 
 		cfg.mainStage.lifetime = 5.5f;
-		cfg.mainStage.lifetimeVariance = 3.0f;
+		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startColor = Rgba8(50, 30, 20, 255);
 		cfg.mainStage.endColor = Rgba8(180, 160, 130, 30);
 		cfg.mainStage.startSize = 0.02f;
@@ -3003,7 +3250,7 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.04f);
 		cfg.mainStage.velocityVariance = Vec3(0.35f, 0.35f, 0.50f);
 		cfg.mainStage.lifetime = 5.5f;
-		cfg.mainStage.lifetimeVariance = 3.0f;
+		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startColor = Rgba8(10, 10, 10, 1);
 		cfg.mainStage.endColor = Rgba8(180, 160, 130, 1);
 		cfg.mainStage.startSize = 0.02f;
@@ -3031,7 +3278,7 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.6f); 
 		cfg.mainStage.velocityVariance = Vec3(1.2f, 1.2f, 1.8f); 
 		cfg.mainStage.lifetime = 3.2f;
-		cfg.mainStage.lifetimeVariance = 1.5f;
+		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startColor = Rgba8(200, 180, 140, 100); 
 		cfg.mainStage.endColor = Rgba8(200, 180, 140, 100);
 		cfg.mainStage.startSize = 0.18f;
@@ -3058,7 +3305,7 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.03f);
 		cfg.mainStage.velocityVariance = Vec3(0.25f, 0.25f, 0.35f);
 		cfg.mainStage.lifetime = 7.5f;
-		cfg.mainStage.lifetimeVariance = 4.0f;
+		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startColor = Rgba8(190, 170, 130, 30);
 		cfg.mainStage.endColor = Rgba8(170, 150, 110, 30);
 		cfg.mainStage.startSize = 0.2f;
@@ -3088,7 +3335,7 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 5.0f);
 		cfg.mainStage.velocityVariance = Vec3(0.4f, 0.4f, 0.6f);
 		cfg.mainStage.lifetime = 6.0f;
-		cfg.mainStage.lifetimeVariance = 2.5f;
+		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startColor = Rgba8(200, 180, 150, 10);
 		cfg.mainStage.endColor = Rgba8(200, 180, 150, 0);
 		cfg.mainStage.startSize = 2.0f;
@@ -3116,7 +3363,7 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.f);
 		cfg.mainStage.velocityVariance = Vec3(0.5f, 0.5f, 0.2f);
 		cfg.mainStage.lifetime = 2.8f;
-		cfg.mainStage.lifetimeVariance = 1.0f;
+		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startColor = Rgba8(210, 190, 150, 120);
 		cfg.mainStage.endColor = Rgba8(210, 190, 150, 30);
 		cfg.mainStage.startSize = 0.12f;
@@ -3143,7 +3390,7 @@ void Game::SetupScene4()
 		cfg.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.f);  
 		cfg.mainStage.velocityVariance = Vec3(0.5f, 0.5f, 0.2f); 
 		cfg.mainStage.lifetime = 2.8f;
-		cfg.mainStage.lifetimeVariance = 1.0f;
+		cfg.mainStage.lifetimeVariance = 0.0f;
 		cfg.mainStage.startColor = Rgba8(255, 220, 190, 255); 
 		cfg.mainStage.endColor = Rgba8(255, 220, 190, 30);
 		cfg.mainStage.startSize = 0.12f;
@@ -3161,80 +3408,52 @@ void Game::SetupScene4()
 
 
 	{
-		ParticleForce tornado = ParticleForce::MakeFlowColumn(
-			Vec3(0.f, 0.f, 0.f),                    
-			Vec3(0.f, 0.f, 1.f),
+		ParticleForce coreVortex = ParticleForce::MakeFlowColumn(
+			Vec3(0, 0, 0),
+			Vec3(0, 0, 1),
 			48.0f,
-			1.4f,
-			16.0f,
-			24.0f,
-			60.0f,
-			48.0f,
-			1.4f,
-			5.0f,
-			FLOW_SWIRL_ENABLE | FLOW_RADIAL_ENABLE | FLOW_AXIAL_ENABLE
-		);
-		uint32_t idx = g_theParticleSystem->AddForce(tornado);
-		m_tornadoForceIndices.push_back(idx);
-	}
-
-	{
-		ParticleForce topDiffusion = ParticleForce::MakeFlowColumn(
-			Vec3(4.5f, 0.3f, 22.f),                    
-			Vec3(0.f, 0.f, 1.f),
-			18.0f,
-			7.0f,
-			15.0f,
+			1.5f,
 			12.0f,
-			5.0f,
-			-18.0f,
-			2.2f,
-			2.5f,
-			FLOW_RADIAL_OUTWARD | FLOW_AXIAL_ENABLE
+			40.0f,  
+			6.0f,   
+			0.0f,   
+			FLOW_SWIRL_ENABLE | FLOW_AXIAL_ENABLE
 		);
-		uint32_t idx = g_theParticleSystem->AddForce(topDiffusion);
+		uint32_t idx = g_theParticleSystem->AddForce(coreVortex);
 		m_tornadoForceIndices.push_back(idx);
-
 	}
 
 	{
-		ParticleForce midSwirl = ParticleForce::MakeFlowColumn(
-			Vec3(-2.7f, 1.2f, 12.f),                    
-			Vec3(0.1f, 0.05f, 1.f).GetNormalized(),
-			20.0f,
+		ParticleForce inflow = ParticleForce::MakeFlowColumn(
+			Vec3(0, 0, 0),
+			Vec3(0, 0, 1),
+			48.0f,
 			4.0f,
-			8.0f,
-			35.0f,
-			15.0f,
-			20.0f,
-			2.0f,
-			3.0f,
-			FLOW_SWIRL_ENABLE | FLOW_RADIAL_ENABLE | FLOW_AXIAL_ENABLE
+			18.0f,
+			0.0f,   
+			0.0f,   
+			14.0f,  
+			FLOW_RADIAL_ENABLE
 		);
-		uint32_t idx = g_theParticleSystem->AddForce(midSwirl);
+		uint32_t idx = g_theParticleSystem->AddForce(inflow);
 		m_tornadoForceIndices.push_back(idx);
-
 	}
 
 	{
-		ParticleForce noisePerturb = ParticleForce::MakeFlowColumn(
-			Vec3(-0.9f, -0.4f, 10.f),                   
-			Vec3(0.f, 0.f, 1.f),
-			30.0f,
-			5.0f,
+		ParticleForce groundPull = ParticleForce::MakeFlowColumn(
+			Vec3(0, 0, 0),
+			Vec3(0, 0, 1),
 			10.0f,
-			25.0f,
-			10.0f,
-			15.0f,
-			3.0f,
+			1.5f,
 			4.0f,
-			FLOW_SWIRL_ENABLE | FLOW_RADIAL_ENABLE | FLOW_AXIAL_ENABLE
+			20.0f,
+			20.0f,
+			10.0f,
+			FLOW_SWIRL_ENABLE | FLOW_AXIAL_ENABLE | FLOW_RADIAL_ENABLE
 		);
-		uint32_t idx = g_theParticleSystem->AddForce(noisePerturb);
+		uint32_t idx = g_theParticleSystem->AddForce(groundPull);
 		m_tornadoForceIndices.push_back(idx);
-
 	}
-
 
 }
 
@@ -3555,6 +3774,56 @@ void Game::SetupScene5()
 	}
 }
 
+void Game::SetupScene6()
+{
+	Scene* scene = GetCurrentScene();
+	if (!scene) return;
+	m_skyVerts.clear();
+
+	scene->ClearGameObjects();
+	scene->ClearParticleEmitters();
+
+	scene->SetupStartPosAndOrientation(Vec3(0.f, 0.f, 0.f), EulerAngles(0.f, 0.f, 0.f));
+	scene->ResetPlayer(m_player);
+
+	// === Ground Plane ===
+	{
+		GameObject* ground = scene->CreateGameObject(this, "Ground");
+		ground->InitializeVertsFromType(ObjectType::CUBE);
+		ground->SetPosition(Vec3(0.f, 0.f, -0.5f));
+		ground->SetScale(Vec3(10.f, 10.f, 0.1f));
+		ground->m_diffuseTexture = g_theRenderer->CreateOrGetTextureFromFile("Data/Images/Scene3/brick1_sge.png");
+	}
+
+	{
+		ParticleEmitterConfig fireConfig;
+		fireConfig.name = "Smoke";
+
+		fireConfig.mainStage.texPath = "Data/Images/Scene4/dust1.png";
+		fireConfig.blendMode = BlendMode::ALPHA;
+		fireConfig.position = Vec3(0.f, 0.f, 0.f);
+		fireConfig.spawnArea = Vec3(1.f, 1.f, 1.f);
+		fireConfig.mainStage.baseVelocity = Vec3(0.f, 0.f, 0.1f);
+
+		fireConfig.spawnRate = 10000.f;
+		fireConfig.mainStage.lifetime = 1.f;
+		fireConfig.mainStage.lifetimeVariance = 0.f;
+
+		fireConfig.mainStage.startColor = Rgba8(200, 200, 200, 200);
+		fireConfig.mainStage.endColor = Rgba8(200, 200, 200, 200);
+
+		fireConfig.mainStage.startSize = 0.05f;
+		fireConfig.mainStage.endSize = 0.05f;
+
+		fireConfig.isLooping = true;
+		fireConfig.enabled = true;
+		fireConfig.maxParticles = 10000000;
+
+		ParticleEmitter* fireWithSmoke = g_theParticleSystem->CreateEmitter(fireConfig);
+		scene->AddParticleEmitter(fireWithSmoke);
+	}
+}
+
 void Game::SetupScene2()
 {
 	Scene* scene = GetCurrentScene();
@@ -3565,7 +3834,7 @@ void Game::SetupScene2()
 	scene->ClearGameObjects();
 	scene->ClearParticleEmitters();
 
-	scene->SetupStartPosAndOrientation(Vec3(2.8f, 5.6f, 3.5f), EulerAngles(-130.f, 11.2f, 0.f));
+	scene->SetupStartPosAndOrientation(Vec3(4.6f, 7.4f, 6.3f), EulerAngles(-135.f, 24.f, 0.f));
 	scene->ResetPlayer(m_player);
 
 	GameObject* cave = scene->CreateGameObject(this, "Cave");
@@ -3855,6 +4124,7 @@ void Game::RegisterScenes()
 	m_sceneManager.RegisterScene("Scene 3", std::make_unique<Scene>("Scene 3"));
 	m_sceneManager.RegisterScene("Scene 4", std::make_unique<Scene>("Scene 4"));
 	m_sceneManager.RegisterScene("Scene 5", std::make_unique<Scene>("Scene 5"));
+	m_sceneManager.RegisterScene("Scene 6", std::make_unique<Scene>("Scene 6"));
 }
 
 void Game::SwitchToScene(const std::string& sceneName, float fadeDuration /*= 1.0f*/)

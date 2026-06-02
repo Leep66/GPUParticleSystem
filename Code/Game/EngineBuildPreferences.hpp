@@ -15,3 +15,4 @@
 #endif
 
 #define LIGHT_CONSTANTS
+#define PERFRAME_CONSTANTS

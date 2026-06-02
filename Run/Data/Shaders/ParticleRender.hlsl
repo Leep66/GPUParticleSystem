@@ -23,7 +23,7 @@ cbuffer ParticleSystemConstants : register(b8)
     float    _pad1[2];
 };
 
-#define MAX_LIGHTS 8
+#define MAX_LIGHTS 64
 
 struct Light
 {
@@ -57,7 +57,13 @@ cbuffer SoftParams : register(b9)
     float softBias;
 };
 
-
+cbuffer PerFrameConstants : register(b1)
+{
+    float time;
+    int DebugInt;
+    float DebugFloat;
+    float padding;
+};
 
 
 static float RangeMap(float v, float a, float b, float c, float d)
@@ -157,7 +163,7 @@ struct Particle
     float  Orientation;
     float  AngularVelocity;
     float  p_pad0;
-	float  p_pad1;
+    float  p_pad1;
 };
 
 StructuredBuffer<Particle> Particles : register(t0);
@@ -174,10 +180,10 @@ static const float2 kQuadCorners[4] = {
 static const uint kQuadIndices[6] = {0, 2, 1, 2, 3, 1};
 
 static const float2 kQuadUVs[4] = {
-    float2(0, 0),
     float2(1, 0),
-    float2(0, 1),
-    float2(1, 1)
+    float2(0, 0),
+    float2(1, 1),
+    float2(0, 1)
 };
 
 struct MeshVertexInput
@@ -217,6 +223,27 @@ struct UniversalVSOutput
     float  BillboardType : TEXCOORD10;
 };
 
+SamplerState MainSampler : register(s0);
+
+float3 DecodeRGBToXYZ(float3 color)
+{
+    return (color * 2.0) - 1.0;
+}
+
+float LinearizeDepth(float depth, float near, float far)
+{
+    float safeNear = max(near, 0.0001f);
+    float safeFar  = max(far, safeNear + 0.1f);
+
+    float z_ndc = depth * 2.0 - 1.0;
+
+    float denominator = safeFar + safeNear - z_ndc * (safeFar - safeNear);
+    denominator = max(abs(denominator), 0.00001f);
+
+    float linearDepth = (2.0 * safeNear * safeFar) / denominator;
+    return linearDepth;
+}
+
 UniversalVSOutput MeshVertexMain(MeshVertexInput input)
 {
     UniversalVSOutput output;
@@ -246,7 +273,6 @@ UniversalVSOutput MeshVertexMain(MeshVertexInput input)
     output.WorldNormal = normalize(worldNormal.xyz);
     output.WorldTangent = normalize(worldTangent.xyz);
     output.WorldBitangent = normalize(worldBitangent.xyz);
-
     return output;
 }
 
@@ -278,18 +304,16 @@ UniversalVSOutput ParticleVertexMain(ParticleVertexInput input)
     uint lid = input.VertexID % 6;
     uint cornerIndex = kQuadIndices[lid];
     
-    // rotate the corner in 2D using particle orientation (radians)
     float s = sin(p.Orientation);
     float c = cos(p.Orientation);
     
-    float2 corner = kQuadCorners[cornerIndex]; // (-0.5..0.5)
+    float2 corner = kQuadCorners[cornerIndex];
     float2 rotCorner = float2(
         corner.x * c - corner.y * s,
         corner.x * s + corner.y * c
     );
     
     float2 quad2 = rotCorner * p.Size;
-
 
     uint stage = (uint)round(saturate(p.Stage));
     int billboardType = (stage == 0u) ? MainBillboardType : SubstageBillboardType;
@@ -351,15 +375,8 @@ UniversalVSOutput ParticleVertexMain(ParticleVertexInput input)
 
     output.StageIndex = saturate(p.Stage);
     output.BillboardType = float(billboardType);
-    
+
     return output;
-}
-
-SamplerState MainSampler : register(s0);
-
-float3 DecodeRGBToXYZ(float3 color)
-{
-    return (color * 2.0) - 1.0;
 }
 
 float4 PixelMain(UniversalVSOutput input) : SV_Target
@@ -367,38 +384,54 @@ float4 PixelMain(UniversalVSOutput input) : SV_Target
     if (input.IsParticle > 0.5f)
     {
         uint stage = (uint)round(saturate(input.StageIndex));
-
-        float4 tex0 = ParticleTexture0.Sample(MainSampler, input.UV);
-        float4 tex1 = ParticleTexture1.Sample(MainSampler, input.UV);
-        float4 tex = (stage == 0u) ? tex0 : tex1;
-
+        float4 tex = (stage == 0u) ? ParticleTexture0.Sample(MainSampler, input.UV)
+                                   : ParticleTexture1.Sample(MainSampler, input.UV);
         float4 baseColor = tex * input.Color;
-
         if (baseColor.a <= 0.001f) discard;
 
-        uint billboardType = (uint)input.BillboardType;
-        
-        float3 particleNormal;
-        if (billboardType == 1)
-        {
-            particleNormal = float3(0, 0, 1);
-        }
-        else
-        {
-            particleNormal = normalize(-normalize(CameraPosition - input.WorldPos));
-        }
+        float2 screenUV = input.Position.xy / float2(1920, 1200);
+        screenUV = saturate(screenUV);
 
-        float specularity = 0.3f;
-        float glossiness = 0.4f;
-        float emissiveness = input.Emissive;
+        float sceneDepth = g_SceneDepth.Sample(g_SoftSamp, screenUV).r;
+        float particleDepth = input.Position.z;
 
-        float3 finalColor = baseColor.rgb;
+        const float NEAR_PLANE = 0.1f;    
+        const float FAR_PLANE  = 1000.0f;
+    
+        float safeNear = max(NEAR_PLANE, 0.0001f);
+        float safeFar  = max(FAR_PLANE, safeNear + 0.1f);
+        float z_ndc = sceneDepth * 2.0 - 1.0;
+        float denominator = safeFar + safeNear - z_ndc * (safeFar - safeNear);
+        float sceneZ = (2.0 * safeNear * safeFar) / max(abs(denominator), 0.00001f);
+    
+        z_ndc = particleDepth * 2.0 - 1.0;
+        denominator = safeFar + safeNear - z_ndc * (safeFar - safeNear);
+        float particleZ = (2.0 * safeNear * safeFar) / max(abs(denominator), 0.00001f);
 
+        const float SOFT_RANGE = 0.5f;
+        const float SOFT_BIAS  = 0.01f;
 
-        finalColor += baseColor.rgb * emissiveness;
-        finalColor = min(finalColor, float3(1.0, 1.0, 1.0));
+        float depthDiff = (sceneZ - particleZ) + SOFT_BIAS;
 
-        return float4(finalColor, baseColor.a);
+        float distanceScale = clamp(particleZ / safeNear, 1.0, 8.0);
+        float adaptiveSoftRange = SOFT_RANGE * distanceScale;
+
+        float rawSoftness = saturate(depthDiff / adaptiveSoftRange);
+
+        const float SHARPNESS = 2.5f;
+        float softness = pow(rawSoftness, SHARPNESS);
+        softness = lerp(0.3f, 1.0f, softness);
+
+        float alpha = baseColor.a * softness;
+        if (alpha <= 0.001f) discard;
+
+        float3 finalColor = baseColor.rgb + baseColor.rgb * input.Emissive;
+        finalColor = min(finalColor, 1.0);
+
+        if (DebugInt == 1)
+            alpha /= softness;
+
+        return float4(finalColor, alpha);
     }
     else
     {

@@ -50,6 +50,9 @@ void Scene::Update(float deltaSeconds)
 
 void Scene::Render() const
 {
+	
+	g_theRenderer->BeginOpaquePass();
+
 	for (auto& gameObject : m_gameObjects)
 	{
 		if (gameObject && gameObject->IsVisible())
@@ -57,6 +60,10 @@ void Scene::Render() const
 			gameObject->Render();
 		}
 	}
+
+	g_theRenderer->EndOpaquePass();
+
+	g_theRenderer->BindTransparentPass();
 
 	for (auto& emitter : m_particleEmitters)
 	{

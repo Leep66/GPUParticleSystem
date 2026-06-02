@@ -65,9 +65,13 @@ void App::Startup()
 	g_theInput = new InputSystem(inputConfig);
 
 	WindowConfig windowConfig;
-	windowConfig.m_aspectRatio = g_gameConfigBlackboard.GetValue("windowAspect", 1.0f);
+	int windowWidth = g_gameConfigBlackboard.GetValue("windowWidth", 1920);
+	int windowHeight = g_gameConfigBlackboard.GetValue("windowHeight", 1080);
+	windowConfig.m_aspectRatio = g_gameConfigBlackboard.GetValue("windowAspect", (float) windowWidth / (float) windowHeight);
 	windowConfig.m_inputSystem = g_theInput;
 	windowConfig.m_windowTitle = g_gameConfigBlackboard.GetValue("projectName", Stringf("Unnamed Project"));
+	windowConfig.m_isFullScreen = g_gameConfigBlackboard.GetValue("isFullscreen", false);
+
 	g_theWindow = new Window(windowConfig);
 
 	RendererConfig rendererConfig;
@@ -118,7 +122,8 @@ void App::Startup()
 
 void App::Update()
 {
-	bool shouldUsePointerMode = !g_theWindow->HasFocus() || g_theDevConsole->IsOpen() || m_game->m_currentState == GameState::ATTRACT || m_game->m_imguiCursor;
+	bool shouldUsePointerMode = !g_theWindow->HasFocus() || g_theDevConsole->IsOpen() || 
+	m_game->m_currentState == GameState::ATTRACT || m_game->m_imguiCursor;
 
 	if (shouldUsePointerMode)
 	{

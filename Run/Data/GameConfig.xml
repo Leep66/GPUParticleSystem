@@ -1,10 +1,7 @@
 ﻿<GameConfig
 	projectName="GPU Particle System"
-	windowAspect="2.0"
-	screenWidth="1600.0"
-	screenHeight="800.0"
-	isFullscreen="false"
-	
-	
-	
+	windowAspect="1.6"
+	screenWidth="1920"
+	screenHeight="1200"
+	isFullscreen="true"
 />

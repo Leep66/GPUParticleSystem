@@ -114,13 +114,8 @@ struct ParticleForce
     float  TopRadius;
     float  AxialStrength;
     float  RadialStrength;
-
-    float  RadialFalloffPow;
-    float  HeightFalloffPow;
-
-    float  Pad0;
-    float  Pad1;
 };
+
 float3 safe_normalize(float3 v)
 {
     float len = length(v);
@@ -135,84 +130,80 @@ float3 point_force_accel(float3 pos, float3 pnt, float strength, float softening
     float invPow = 1.0 / pow(max(d, 1e-6), max(falloffPow, 0.0));
     return dir * (strength * invPow);
 }
+
 float RadialFracFromFlags(uint flags)
 {
     uint b = (flags >> 8) & 0xFFu;
     return (float)b * (2.0 / 255.0);
 }
+
+
 float3 flowcolumn_force_accel(float3 pos, ParticleForce f)
 {
-    float3 acc = float3(0.0f, 0.0f, 0.0f);
-
-
     float3 axis = safe_normalize(f.Direction);
-    if (dot(axis, axis) < 1e-12f) return acc;
+    if (dot(axis, axis) < 1e-6) return 0.0.xxx;
 
     float3 toCenter = pos - f.Position;
-    float proj = dot(toCenter, axis);
 
-    if (proj < -f.Range * 0.3f || proj > f.Range) return acc;
+    float h = dot(toCenter, axis);
+    if (h < 0.0f || h > f.Range) return 0.0.xxx;
 
-    float heightT = saturate(proj / f.Range);
-
-    float currentRadius = lerp(f.BottomRadius, f.TopRadius, heightT);
-
-    float3 radialVec = toCenter - axis * proj;
+    float3 radialVec = toCenter - axis * h;
     float r = length(radialVec);
 
-    if (r > currentRadius) return acc;
+    float3 n = (r > 1e-5f) ? radialVec / r : 0.0.xxx;
 
-    float3 radialDir = (r > 1e-5f) ? radialVec / r : 0.0.xxx;
-    float radialT = saturate(1.0f - r / currentRadius);
-    float radialFalloff = pow(radialT, f.RadialFalloffPow);
-    float heightFalloff = pow(1.0f - heightT, f.HeightFalloffPow);
-    float combinedFalloff = radialFalloff * heightFalloff;
+    float t = h / f.Range;
+    float targetRadius = lerp(f.BottomRadius, f.TopRadius, t);
 
-    float invR = 1.0f;
-    if ((f.Flags & FLOW_USE_INV_RADIUS) != 0u)
-    {
-        invR = 1.0f / max(r, 0.25f);
-    }
+    if (r > targetRadius * 1.2f) return 0.0.xxx;
 
-    float3 tangential = cross(axis, radialDir);
-    if ((f.Flags & FLOW_SWIRL_INVERT) != 0u)
-    {
-        tangential = -tangential;
-    }
+    float3 acc = 0.0.xxx;
 
     if ((f.Flags & FLOW_SWIRL_ENABLE) != 0u)
     {
-        acc += tangential * (f.Strength * combinedFalloff * invR * 1.5f);
-    }
-    if ((f.Flags & FLOW_RADIAL_ENABLE) != 0u)
-    {
-        float3 radialForceDir = ((f.Flags & FLOW_RADIAL_OUTWARD) != 0u) ? radialDir : -radialDir;
-        float radialAdjust = (1.0f - radialT) * 1.5f + 0.5f;
-        acc += radialForceDir * (f.RadialStrength * combinedFalloff * radialAdjust * 2.0f);
-    }
-    if ((f.Flags & FLOW_AXIAL_ENABLE) != 0u)
-    {
-        float axialWeight = pow(1.0f - heightT, 3.0f);
-        acc += axis * (f.AxialStrength * combinedFalloff * axialWeight);
+        float coreRadius = targetRadius * 0.2f;
+
+        float swirl = 0.0f;
+
+        if (r < coreRadius)
+        {
+            swirl = f.Strength * (r / coreRadius);
+        }
+        else
+        {
+            float rSafe = max(r, coreRadius);
+            swirl = f.Strength * (coreRadius / rSafe);
+        }
+
+        acc += cross(axis, n) * swirl;
     }
 
-    // --- HARDER WALL (no vel/dt available) ---
+    if ((f.Flags & FLOW_RADIAL_ENABLE) != 0u)
     {
-        float wallStart = currentRadius * 0.85f;
-        float wallPen = r - wallStart;
-    
-        if (wallPen > 0.0f)
+        float radial = f.RadialStrength;
+
+        if (r < targetRadius)
         {
-            float t = saturate(wallPen / max(currentRadius - wallStart, 1e-6f));
-            float k = 50.0f;
-            float wall = k * wallPen * (1.0f + 10.0f * t * t);
-    
-            acc += -radialDir * wall;
+            acc += -n * radial;
         }
-    }  
+    }
+
+    if ((f.Flags & FLOW_AXIAL_ENABLE) != 0u)
+    {
+        acc += axis * f.AxialStrength;
+    }
+
+    float maxRadius = targetRadius;
+    if (r > maxRadius)
+    {
+        float penetration = r - maxRadius;
+        acc += -n * penetration * 20.0f;
+    }
 
     return acc;
 }
+
 
 uint Hash(uint x)
 {

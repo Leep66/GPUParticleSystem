@@ -76,6 +76,10 @@ public:
 	SceneManager m_sceneManager;
 	Shader* m_shader = nullptr;
 	Shader* m_particleRenderShader = nullptr;
+
+	float screenWidth = 1600.f;
+	float screenHeight = 800.f;
+
 private:
 	void UpdateInput(float deltaSeconds);
 	void DebugRender() const;
@@ -115,6 +119,7 @@ private:
 	void SetupScene3();
 	void SetupScene4();
 	void SetupScene5();
+	void SetupScene6();
 
 
 private:
